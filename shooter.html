@@ -193,6 +193,11 @@
     background: radial-gradient(ellipse at center, transparent 40%, rgba(255,0,0,0.6) 100%);
     opacity: 0; transition: opacity 0.3s;
   }
+  #flashOverlay {
+    position: absolute; inset: 0; pointer-events: none;
+    background: #fff; opacity: 0; transition: opacity 0.1s;
+    z-index: 250;
+  }
   #hitDirection {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
     width: 200px; height: 200px; pointer-events: none; opacity: 0;
@@ -338,6 +343,34 @@
     cursor: pointer; letter-spacing: 3px;
   }
   #weaponPicker .wp-close:hover { background: #ffb83d; }
+
+  /* === ТАЙМЕР РАУНДА === */
+  #roundTimer {
+    position: fixed; inset: 0;
+    display: none; align-items: center; justify-content: center;
+    pointer-events: none;
+    z-index: 180;
+    font-size: 160px; font-weight: bold; color: #f5a623;
+    text-shadow: 0 0 40px #f5a623, 0 0 80px #f5a623;
+    font-family: 'Arial Black', sans-serif;
+    letter-spacing: 8px;
+    background: rgba(0,0,0,0.25);
+  }
+  #roundTimer.show { display: flex; }
+  #roundInfo {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    font-size: 22px; font-weight: bold; color: #f5a623;
+    background: rgba(0,0,0,0.7); padding: 10px 30px; border-radius: 6px;
+    border: 2px solid #f5a623; display: none; z-index: 170;
+    text-align: center;
+  }
+  #teamScores {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    display: none; gap: 40px; font-size: 28px; font-weight: bold;
+    z-index: 170;
+  }
+  #teamScores .score-ct { color: #4488ff; }
+  #teamScores .score-t { color: #ffaa44; }
 </style>
 </head>
 <body>
@@ -361,6 +394,8 @@
       <div class="option selected" data-value="deathmatch">Deathmatch</div>
       <div class="option" data-value="waves">Волны врагов</div>
       <div class="option" data-value="survival">Выживание</div>
+      <div class="option" data-value="competitive">Соревновательный (8 раундов 5v5)</div>
+      <div class="option" data-value="allies">Союзники (5 раундов 2v2)</div>
     </div>
   </div>
   
@@ -369,7 +404,7 @@
     <button id="multiplayerBtn">🌐 СЕТЕВАЯ ИГРА</button>
     <button id="settingsBtn">⚙ НАСТРОЙКИ</button>
   </div>
-  <div class="wp-hint" style="color:#666;font-size:13px;letter-spacing:2px;margin-top:10px;">В игре нажмите <b style="color:#f5a623">B</b> для выбора оружия (20 стволов)</div>
+  <div class="wp-hint" style="color:#666;font-size:13px;letter-spacing:2px;margin-top:10px;">В игре нажмите <b style="color:#f5a623">B</b> для выбора оружия (50 стволов)</div>
 </div>
 
 <div id="multiplayerMenu">
@@ -543,6 +578,7 @@
   <div id="hitmark">✕</div>
   <div id="hitDirection"></div>
   <div id="damageVignette"></div>
+  <div id="flashOverlay"></div>
   <div id="hpBar"><div id="hpFill"></div><div id="hpText">100</div></div>
   <div id="ammo">30<span class="reserve"> / 90</span></div>
   <div id="score">Убито: 0</div>
@@ -552,7 +588,7 @@
   <div id="netInfo">PING: -- | ИГРОКОВ: 1</div>
   <div id="playerList"></div>
   <div id="minimap"><canvas id="minimapCanvas"></canvas></div>
-  <div id="instructions">WASD — движение | SHIFT — бег | CTRL — присесть | ПРОБЕЛ — прыжок | ЛКМ — стрелять | ПКМ — прицел | R — перезарядка | B — выбор оружия</div>
+  <div id="instructions">WASD — движение | SHIFT — бег | CTRL — присесть | ПРОБЕЛ — прыжок | ЛКМ — стрелять | ПКМ — прицел | R — перезарядка | B — выбор оружия | G — граната</div>
 </div>
 
 <div id="gameOver">
@@ -567,6 +603,14 @@
   <div class="wp-hint">Нажмите на оружие для выбора • ESC или B — закрыть</div>
   <div class="wp-grid" id="weaponGrid"></div>
   <button class="wp-close" id="wpClose">ЗАКРЫТЬ</button>
+</div>
+
+<!-- ТАЙМЕР РАУНДА -->
+<div id="roundTimer">20</div>
+<div id="roundInfo">РАУНД 1 / 8</div>
+<div id="teamScores">
+  <span class="score-ct" id="scoreCT">CT 0</span>
+  <span class="score-t" id="scoreT">T 0</span>
 </div>
 
 <script type="importmap">
@@ -589,7 +633,7 @@ const DEFAULT_SETTINGS = {
   bloodEffects: true, muzzleFlash: true, tracers: true, shellCasings: true, footDust: true,
   masterVolume: 80, sfxVolume: 80, musicVolume: 50, spatialAudio: true, idleMute: false,
   sensitivity: 20, adsSensitivity: 10, invertY: false, pointerLock: true,
-  keybinds: { forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', jump: 'Space', sprint: 'ShiftLeft', reload: 'KeyR', crouch: 'ControlLeft' },
+  keybinds: { forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', jump: 'Space', sprint: 'ShiftLeft', reload: 'KeyR', crouch: 'ControlLeft', grenade: 'KeyG' },
   difficulty: 'normal', maxEnemies: 8, weaponSpread: 100,
   autoReload: false, damageNumbers: true, hitmarker: true, hitDirection: true,
   showFps: false, showHints: true, minimap: true,
@@ -622,6 +666,7 @@ function applySettings() {
   if (renderer) {
     renderer.shadowMap.enabled = settings.shadows;
     renderer.toneMapping = settings.toneMapping ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
+    renderer.setPixelRatio(Math.min(devicePixelRatio, settings.graphicsQuality === 'low' ? 1 : 1.5));
   }
   updateCrosshairStyle();
   if (state) state.maxEnemies = settings.maxEnemies;
@@ -769,7 +814,9 @@ document.querySelectorAll('.color-swatches[data-setting]').forEach(group => {
   });
 });
 
-// === 20 ВИДОВ ОРУЖИЯ ===
+// ============================================================
+// ============== РАСШИРЕННЫЙ АРСЕНАЛ ========================
+// ============================================================
 const WEAPONS = {
   pistol:  { damage: 25, fireRate: 300, ammo: 12, reserve: 60, spread: 0.01, auto: false, reload: 1500, bulletSpeed: 100, adsSpreadMult: 0.15, adsFOV: 55, adsPos: { x: 0, y: -0.18, z: -0.35 }, recoil: 0.004, recoilKick: 0.015, recoilRecovery: 4.0 },
   rifle:   { damage: 30, fireRate: 100, ammo: 30, reserve: 90, spread: 0.02, auto: true,  reload: 2200, bulletSpeed: 120, adsSpreadMult: 0.15, adsFOV: 50, adsPos: { x: 0, y: -0.16, z: -0.32 }, recoil: 0.006, recoilKick: 0.025, recoilRecovery: 3.2 },
@@ -777,7 +824,6 @@ const WEAPONS = {
   sniper:  { damage: 120, fireRate: 1400, ammo: 5, reserve: 20, spread: 0.001, auto: false, reload: 3000, bulletSpeed: 200, adsSpreadMult: 0.05, adsFOV: 20, adsPos: { x: 0, y: -0.16, z: -0.2 }, scope: true, recoil: 0.02, recoilKick: 0.1, recoilRecovery: 2.0 }
 };
 
-// Хранилище реальных характеристик для 20 стволов
 const WEAPON_DEFS = {};
 
 const HITBOX = {
@@ -806,6 +852,7 @@ scene.fog = settings.fog ? new THREE.Fog(0xc2a878, 60, settings.viewDistance) : 
 const camera = new THREE.PerspectiveCamera(settings.fov, innerWidth/innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: settings.antialias });
 renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, settings.graphicsQuality === 'low' ? 1 : 1.5));
 renderer.shadowMap.enabled = settings.shadows;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -880,12 +927,22 @@ const state = {
   recoilRot: new THREE.Vector3(),
   lastFootstep: 0, isPumping: false,
   playerNoise: 0, playerLastSeen: 0,
-  playerLastPos: new THREE.Vector3()
+  playerLastPos: new THREE.Vector3(),
+  // Round system
+  round: 1, maxRounds: 8, roundActive: false, roundTimer: 0, roundFreeze: false,
+  team: 'CT', teamSize: 5,
+  scoreCT: 0, scoreT: 0,
+  // Grenades
+  grenades: [], grenadeType: 'rgd5', grenadeCooldown: 0,
+  flashbangEffect: 0, smokeClouds: [], fireAreas: [],
+  // Weapon in hand
+  handWeapon: null, handGrenade: null, isHoldingGrenade: false
 };
 
 let weaponModel = null, mapGroup = null, playerModel = null;
-let currentWeaponKey = 'rifle';       // базовый тип (для HITBOX, логики)
-let currentWeaponDef = null;          // полные характеристики текущего ствола
+let currentWeaponKey = 'rifle';
+let currentWeaponDef = null;
+let grenadeModel = null;
 
 function makeTexture(color1, color2, size = 256) {
   const c = document.createElement('canvas');
@@ -908,7 +965,7 @@ function makeTexture(color1, color2, size = 256) {
 }
 
 // ============================================================
-// ============== КАРТА MIRAGE (детальная) ===================
+// ============== КАРТА MIRAGE ===============================
 // ============================================================
 function createMirage() {
   const group = new THREE.Group();
@@ -1092,7 +1149,7 @@ function createMap(type) {
 }
 
 // ============================================================
-// ============== 3D МОДЕЛИ ОРУЖИЯ (РАСШИРЕННЫЙ АРСЕНАЛ) ====
+// ============== 3D МОДЕЛИ ОРУЖИЯ ===========================
 // ============================================================
 function makeGunMaterials() {
   return {
@@ -1126,336 +1183,142 @@ function cyl(rt, rb, h, seg, mat, x=0, y=0, z=0, rx=0, ry=0, rz=0) {
   return m;
 }
 
-// ----- ПИСТОЛЕТЫ -----
+// ----- БАЗОВЫЕ МОДЕЛИ -----
 function buildPistolV1() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(box(0.058, 0.062, 0.26, M.gunmetal, 0, 0.025, -0.02));
   g.add(box(0.052, 0.008, 0.26, M.gunmetal2, 0, 0.06, -0.02));
   for (let i = 0; i < 9; i++) g.add(box(0.064, 0.007, 0.005, M.gunmetal2, 0, 0.05, 0.075 + i * 0.014));
-  for (let i = 0; i < 6; i++) g.add(box(0.064, 0.007, 0.004, M.gunmetal2, 0, 0.05, -0.12 - i * 0.011));
   g.add(box(0.022, 0.016, 0.008, M.polymer2, 0, 0.07, 0.095));
-  g.add(box(0.006, 0.012, 0.012, M.polymer, 0.011, 0.072, 0.095));
-  g.add(box(0.006, 0.012, 0.012, M.polymer, -0.011, 0.072, 0.095));
-  const frontDot = new THREE.Mesh(new THREE.SphereGeometry(0.0025, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  frontDot.position.set(0, 0.078, -0.145); g.add(frontDot);
-  const rearDotL = new THREE.Mesh(new THREE.SphereGeometry(0.002, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  rearDotL.position.set(-0.013, 0.075, 0.098); g.add(rearDotL);
-  const rearDotR = new THREE.Mesh(new THREE.SphereGeometry(0.002, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  rearDotR.position.set(0.013, 0.075, 0.098); g.add(rearDotR);
   g.add(cyl(0.011, 0.013, 0.075, 16, M.chrome, 0, 0.025, -0.18, Math.PI/2, 0, 0));
-  g.add(cyl(0.014, 0.014, 0.012, 16, M.gunmetal, 0, 0.025, -0.215, Math.PI/2, 0, 0));
   g.add(box(0.055, 0.045, 0.22, M.polymer, 0, -0.02, -0.03));
-  g.add(box(0.052, 0.025, 0.16, M.polymer, 0, -0.055, -0.01));
-  for (let i = 0; i < 6; i++) g.add(box(0.054, 0.006, 0.012, M.gunmetal, 0, -0.075, -0.09 + i * 0.024));
-  const trigger = box(0.008, 0.028, 0.006, M.chrome, 0, -0.085, -0.005);
-  trigger.rotation.x = 0.15; g.add(trigger);
   const grip = box(0.05, 0.15, 0.065, M.rubber, 0, -0.13, 0.075);
   grip.rotation.x = 0.18; g.add(grip);
-  for (let i = 0; i < 7; i++) g.add(box(0.053, 0.005, 0.068, M.polymer2, 0, -0.07 - i * 0.018, 0.075, 0.18, 0, 0));
-  g.add(box(0.04, 0.02, 0.055, M.gunmetal, 0, -0.195, 0.07));
-  g.add(box(0.008, 0.012, 0.008, M.chrome, 0.029, -0.06, 0.04));
-  g.add(box(0.008, 0.006, 0.04, M.brass, 0.026, -0.06, 0.02));
-  g.add(box(0.005, 0.028, 0.06, M.polymer, 0.03, 0.025, 0.0));
   return g;
 }
 function buildPistolV2() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(box(0.06, 0.065, 0.28, M.carbon, 0, 0.025, -0.02));
-  g.add(box(0.055, 0.008, 0.28, M.black, 0, 0.062, -0.02));
-  for (let i = 0; i < 8; i++) g.add(box(0.066, 0.006, 0.004, M.black, 0, 0.052, 0.08 + i * 0.015));
-  g.add(box(0.024, 0.018, 0.01, M.polymer2, 0, 0.075, 0.10));
-  g.add(box(0.008, 0.014, 0.014, M.polymer, 0.012, 0.078, 0.10));
-  g.add(box(0.008, 0.014, 0.014, M.polymer, -0.012, 0.078, 0.10));
   g.add(cyl(0.012, 0.014, 0.08, 16, M.gunmetal, 0, 0.025, -0.19, Math.PI/2, 0, 0));
-  g.add(cyl(0.022, 0.022, 0.18, 16, M.black, 0, 0.025, -0.32, Math.PI/2, 0, 0));
-  for (let i = 0; i < 5; i++) g.add(cyl(0.024, 0.024, 0.008, 16, M.gunmetal, 0, 0.025, -0.40 + i*0.035, Math.PI/2, 0, 0));
-  g.add(cyl(0.015, 0.015, 0.01, 16, M.gunmetal, 0, 0.025, -0.41, Math.PI/2, 0, 0));
   g.add(box(0.055, 0.05, 0.24, M.polymer, 0, -0.02, -0.03));
-  g.add(box(0.052, 0.028, 0.18, M.polymer, 0, -0.058, -0.01));
-  for (let i = 0; i < 6; i++) g.add(box(0.058, 0.005, 0.012, M.picatinny, 0, -0.048, -0.14 + i*0.022));
-  const trigger = box(0.008, 0.03, 0.006, M.chrome, 0, -0.09, -0.005);
-  trigger.rotation.x = 0.15; g.add(trigger);
   const grip = box(0.052, 0.16, 0.07, M.rubber, 0, -0.14, 0.075);
   grip.rotation.x = 0.18; g.add(grip);
-  for (let i = 0; i < 8; i++) g.add(box(0.055, 0.005, 0.073, M.polymer2, 0, -0.07 - i * 0.019, 0.075, 0.18, 0, 0));
-  g.add(box(0.042, 0.022, 0.06, M.gunmetal, 0, -0.21, 0.07));
-  g.add(box(0.01, 0.014, 0.01, M.chrome, 0.031, -0.06, 0.04));
-  g.add(box(0.01, 0.008, 0.05, M.brass, 0.028, -0.06, 0.02));
-  g.add(box(0.006, 0.03, 0.07, M.polymer, 0.032, 0.025, 0.0));
   return g;
 }
 function buildPistolV3() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(box(0.07, 0.075, 0.32, M.gunmetal, 0, 0.03, -0.03));
-  g.add(box(0.06, 0.012, 0.32, M.gunmetal2, 0, 0.072, -0.03));
-  for (let i = 0; i < 10; i++) g.add(box(0.078, 0.008, 0.006, M.gunmetal2, 0, 0.06, 0.09 + i * 0.016));
-  g.add(box(0.028, 0.02, 0.012, M.polymer2, 0, 0.088, 0.11));
-  g.add(box(0.01, 0.016, 0.016, M.polymer, 0.015, 0.09, 0.11));
-  g.add(box(0.01, 0.016, 0.016, M.polymer, -0.015, 0.09, 0.11));
-  const frontDot = new THREE.Mesh(new THREE.SphereGeometry(0.003, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  frontDot.position.set(0, 0.098, -0.17); g.add(frontDot);
   g.add(cyl(0.015, 0.017, 0.09, 16, M.chrome, 0, 0.03, -0.21, Math.PI/2, 0, 0));
-  g.add(cyl(0.02, 0.02, 0.03, 16, M.gunmetal, 0, 0.03, -0.26, Math.PI/2, 0, 0));
-  for (let i = 0; i < 3; i++) g.add(box(0.04, 0.006, 0.012, M.gunmetal, 0, 0.05, -0.25 + i*0.012));
   g.add(box(0.065, 0.055, 0.26, M.polymer, 0, -0.025, -0.03));
-  g.add(box(0.06, 0.03, 0.20, M.polymer, 0, -0.068, -0.01));
-  for (let i = 0; i < 7; i++) g.add(box(0.062, 0.007, 0.014, M.gunmetal, 0, -0.09, -0.10 + i * 0.026));
-  const trigger = box(0.01, 0.032, 0.008, M.chrome, 0, -0.10, -0.005);
-  trigger.rotation.x = 0.15; g.add(trigger);
   const grip = box(0.06, 0.17, 0.08, M.rubber, 0, -0.155, 0.08);
   grip.rotation.x = 0.18; g.add(grip);
-  for (let i = 0; i < 8; i++) g.add(box(0.063, 0.006, 0.083, M.polymer2, 0, -0.08 - i * 0.02, 0.08, 0.18, 0, 0));
-  g.add(box(0.048, 0.024, 0.07, M.gunmetal, 0, -0.235, 0.075));
-  g.add(box(0.012, 0.016, 0.012, M.chrome, 0.036, -0.07, 0.045));
-  g.add(box(0.012, 0.01, 0.06, M.brass, 0.032, -0.07, 0.02));
-  for (let i = 0; i < 4; i++) g.add(box(0.026, 0.008, 0.008, M.gunmetal2, 0, 0.045, -0.18 - i*0.025));
   return g;
 }
-function buildPistolV4() { // револьвер
+function buildPistolV4() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(box(0.05, 0.06, 0.22, M.chrome, 0, 0.03, -0.02));
   g.add(cyl(0.028, 0.028, 0.07, 12, M.gunmetal, 0, 0.03, 0.0, Math.PI/2, 0, 0));
-  for (let i = 0; i < 6; i++) {
-    const a = (i/6)*Math.PI*2;
-    g.add(cyl(0.008, 0.008, 0.08, 6, M.black, Math.cos(a)*0.018, 0.03+Math.sin(a)*0.018, 0.0, Math.PI/2, 0, 0));
-  }
   g.add(cyl(0.012, 0.014, 0.14, 12, M.gunmetal, 0, 0.03, -0.17, Math.PI/2, 0, 0));
-  g.add(box(0.02, 0.04, 0.012, M.gunmetal, 0, 0.06, -0.24));
-  g.add(box(0.024, 0.014, 0.01, M.polymer2, 0, 0.075, 0.04));
   const grip = box(0.045, 0.13, 0.06, M.wood, 0, -0.10, 0.07);
   grip.rotation.x = 0.25; g.add(grip);
-  g.add(box(0.05, 0.02, 0.06, M.wood2, 0, -0.045, 0.06));
-  const trigger = box(0.01, 0.028, 0.006, M.chrome, 0, -0.06, -0.01);
-  trigger.rotation.x = 0.1; g.add(trigger);
-  g.add(box(0.016, 0.012, 0.02, M.chrome, 0.03, 0.0, 0.02));
   return g;
 }
-function buildPistolV5() { // пистолет-пулемёт (machine pistol)
+function buildPistolV5() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(box(0.06, 0.07, 0.26, M.carbon, 0, 0.025, -0.02));
   g.add(cyl(0.014, 0.016, 0.18, 12, M.gunmetal, 0, 0.025, -0.22, Math.PI/2, 0, 0));
-  g.add(box(0.02, 0.06, 0.1, M.polymer, 0, -0.09, 0.0)); // длинный магазин
-  g.add(box(0.024, 0.06, 0.05, M.polymer2, 0, -0.12, 0.0));
-  g.add(box(0.03, 0.04, 0.05, M.polymer2, 0, 0.075, 0.06));
-  g.add(box(0.008, 0.014, 0.014, M.polymer, 0.012, 0.078, 0.06));
-  g.add(box(0.008, 0.014, 0.014, M.polymer, -0.012, 0.078, 0.06));
+  g.add(box(0.02, 0.06, 0.1, M.polymer, 0, -0.09, 0.0));
   g.add(box(0.05, 0.13, 0.06, M.rubber, 0, -0.13, 0.05, 0.2, 0, 0));
-  g.add(box(0.005, 0.024, 0.06, M.polymer, 0.03, 0.025, 0.0));
-  g.add(box(0.008, 0.024, 0.005, M.chrome, 0, -0.075, 0.005));
-  for (let i = 0; i < 5; i++) g.add(cyl(0.006, 0.006, 0.04, 6, M.brass, 0.04, 0.03, 0.10 + i*0.035, 0, 0, Math.PI/2));
   return g;
 }
-
-// ----- ВИНТОВКИ -----
 function buildRifleV1() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(box(0.06, 0.08, 0.28, M.gunmetal, 0, 0.0, -0.05));
-  for (let i = 0; i < 12; i++) g.add(box(0.058, 0.006, 0.014, M.picatinny, 0, 0.045, -0.20 + i*0.022));
   g.add(box(0.055, 0.05, 0.24, M.polymer, 0, -0.05, -0.05));
-  g.add(box(0.055, 0.06, 0.24, M.polymer, 0, -0.005, -0.32));
-  for (let i = 0; i < 5; i++) {
-    g.add(box(0.006, 0.03, 0.012, M.gunmetal, 0.028, -0.005, -0.24 - i*0.035));
-    g.add(box(0.006, 0.03, 0.012, M.gunmetal, -0.028, -0.005, -0.24 - i*0.035));
-  }
-  for (let i = 0; i < 7; i++) g.add(box(0.058, 0.005, 0.012, M.picatinny, 0, 0.03, -0.22 - i*0.028));
   g.add(cyl(0.012, 0.014, 0.42, 12, M.gunmetal, 0, 0.01, -0.42, Math.PI/2, 0, 0));
-  g.add(cyl(0.01, 0.01, 0.3, 10, M.gunmetal, 0, 0.04, -0.36, Math.PI/2, 0, 0));
-  g.add(cyl(0.017, 0.017, 0.05, 12, M.gunmetal, 0, 0.01, -0.65, Math.PI/2, 0, 0));
-  for (let i = 0; i < 3; i++) g.add(box(0.03, 0.004, 0.008, M.gunmetal, 0, 0.022, -0.64 + i*0.012));
   g.add(box(0.06, 0.055, 0.06, M.gunmetal, 0, -0.005, -0.32));
-  g.add(box(0.05, 0.04, 0.09, M.polymer2, 0, 0.08, -0.06));
-  g.add(box(0.04, 0.045, 0.005, M.gunmetal, 0, 0.08, -0.105));
-  g.add(box(0.04, 0.045, 0.005, M.gunmetal, 0, 0.08, -0.015));
-  g.add(cyl(0.016, 0.016, 0.005, 16, M.lens, 0, 0.08, -0.055, Math.PI/2, 0, 0));
-  const rdot = new THREE.Mesh(new THREE.SphereGeometry(0.002, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff2200 }));
-  rdot.position.set(0, 0.08, -0.052); g.add(rdot);
-  g.add(box(0.02, 0.03, 0.02, M.gunmetal, 0, 0.06, -0.08));
-  g.add(box(0.02, 0.03, 0.02, M.gunmetal, 0, 0.06, 0.0));
   const mag = box(0.04, 0.16, 0.06, M.polymer, 0, -0.14, -0.12);
   mag.rotation.x = -0.15; g.add(mag);
-  for (let i = 0; i < 4; i++) g.add(box(0.036, 0.008, 0.05, M.brass, 0, -0.07 - i*0.03, -0.12, -0.15, 0, 0));
-  g.add(box(0.035, 0.008, 0.05, M.brass, 0, -0.062, -0.115));
   const grip = box(0.045, 0.13, 0.05, M.rubber, 0, -0.11, 0.02);
   grip.rotation.x = 0.25; g.add(grip);
-  for (let i = 0; i < 5; i++) g.add(box(0.046, 0.005, 0.052, M.polymer2, 0, -0.06 - i*0.022, 0.02, 0.25, 0, 0));
-  g.add(box(0.05, 0.008, 0.07, M.polymer, 0, -0.05, -0.01));
-  g.add(box(0.008, 0.03, 0.008, M.polymer, 0, -0.035, 0.02));
-  g.add(box(0.008, 0.02, 0.005, M.chrome, 0, -0.038, 0.005));
   g.add(cyl(0.018, 0.018, 0.15, 12, M.polymer2, 0, 0, 0.13, Math.PI/2, 0, 0));
   g.add(box(0.05, 0.09, 0.18, M.polymer, 0, -0.01, 0.24));
-  g.add(box(0.055, 0.11, 0.02, M.rubber, 0, -0.01, 0.34));
-  g.add(box(0.045, 0.02, 0.1, M.polymer, 0, 0.045, 0.24));
   return g;
 }
 function buildRifleV2() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(box(0.062, 0.085, 0.30, M.carbon, 0, 0.0, -0.05));
-  for (let i = 0; i < 14; i++) g.add(box(0.06, 0.006, 0.015, M.picatinny, 0, 0.048, -0.21 + i*0.022));
-  g.add(box(0.058, 0.055, 0.26, M.polymer, 0, -0.055, -0.05));
-  g.add(box(0.058, 0.065, 0.26, M.carbon, 0, -0.005, -0.34));
-  for (let i = 0; i < 6; i++) {
-    g.add(box(0.008, 0.035, 0.014, M.gunmetal, 0.03, -0.005, -0.25 - i*0.035));
-    g.add(box(0.008, 0.035, 0.014, M.gunmetal, -0.03, -0.005, -0.25 - i*0.035));
-  }
-  for (let i = 0; i < 8; i++) g.add(box(0.06, 0.005, 0.013, M.picatinny, 0, 0.035, -0.23 - i*0.028));
   g.add(cyl(0.013, 0.015, 0.44, 12, M.gunmetal, 0, 0.01, -0.44, Math.PI/2, 0, 0));
-  g.add(cyl(0.011, 0.011, 0.32, 10, M.gunmetal, 0, 0.045, -0.38, Math.PI/2, 0, 0));
-  g.add(cyl(0.018, 0.018, 0.06, 12, M.gunmetal, 0, 0.01, -0.68, Math.PI/2, 0, 0));
-  for (let i = 0; i < 4; i++) g.add(box(0.032, 0.005, 0.01, M.gunmetal, 0, 0.024, -0.67 + i*0.013));
   g.add(box(0.062, 0.06, 0.065, M.gunmetal, 0, -0.005, -0.34));
-  g.add(box(0.052, 0.042, 0.07, M.polymer2, 0, 0.085, -0.06));
-  g.add(box(0.042, 0.048, 0.006, M.gunmetal, 0, 0.085, -0.095));
-  g.add(box(0.042, 0.048, 0.006, M.gunmetal, 0, 0.085, -0.025));
-  g.add(cyl(0.018, 0.018, 0.006, 16, M.lens, 0, 0.085, -0.05, Math.PI/2, 0, 0));
-  const rdot = new THREE.Mesh(new THREE.SphereGeometry(0.0025, 6, 6), new THREE.MeshBasicMaterial({ color: 0x00ff44 }));
-  rdot.position.set(0, 0.085, -0.048); g.add(rdot);
-  g.add(box(0.025, 0.035, 0.025, M.gunmetal, 0, 0.06, -0.085));
-  g.add(box(0.025, 0.035, 0.025, M.gunmetal, 0, 0.06, -0.01));
-  const foregrip = box(0.04, 0.12, 0.04, M.rubber, 0, -0.09, -0.32);
-  foregrip.rotation.x = 0.1; g.add(foregrip);
-  for (let i = 0; i < 4; i++) g.add(box(0.042, 0.006, 0.042, M.polymer2, 0, -0.05 - i*0.025, -0.32, 0.1, 0, 0));
   const mag = box(0.042, 0.18, 0.065, M.polymer, 0, -0.15, -0.13);
   mag.rotation.x = -0.15; g.add(mag);
-  for (let i = 0; i < 5; i++) g.add(box(0.038, 0.008, 0.055, M.brass, 0, -0.08 - i*0.032, -0.13, -0.15, 0, 0));
-  g.add(box(0.037, 0.008, 0.055, M.brass, 0, -0.068, -0.125));
   const grip = box(0.048, 0.14, 0.055, M.rubber, 0, -0.12, 0.025);
   grip.rotation.x = 0.25; g.add(grip);
-  for (let i = 0; i < 6; i++) g.add(box(0.049, 0.005, 0.057, M.polymer2, 0, -0.06 - i*0.022, 0.025, 0.25, 0, 0));
-  g.add(box(0.055, 0.008, 0.075, M.polymer, 0, -0.055, -0.01));
-  g.add(box(0.008, 0.032, 0.008, M.polymer, 0, -0.038, 0.025));
-  g.add(box(0.008, 0.022, 0.005, M.chrome, 0, -0.042, 0.008));
   g.add(cyl(0.02, 0.02, 0.16, 12, M.polymer2, 0, 0, 0.14, Math.PI/2, 0, 0));
   g.add(box(0.055, 0.095, 0.19, M.polymer, 0, -0.01, 0.25));
-  g.add(box(0.06, 0.115, 0.022, M.rubber, 0, -0.01, 0.36));
-  g.add(box(0.05, 0.022, 0.11, M.polymer, 0, 0.048, 0.25));
   return g;
 }
 function buildRifleV3() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(box(0.065, 0.09, 0.32, M.tan, 0, 0.0, -0.05));
-  for (let i = 0; i < 15; i++) g.add(box(0.062, 0.006, 0.015, M.picatinny, 0, 0.05, -0.22 + i*0.023));
-  g.add(box(0.06, 0.06, 0.28, M.tan2, 0, -0.06, -0.05));
   g.add(box(0.06, 0.07, 0.30, M.tan, 0, -0.005, -0.36));
-  for (let i = 0; i < 7; i++) {
-    g.add(box(0.008, 0.04, 0.015, M.gunmetal, 0.032, -0.005, -0.26 - i*0.038));
-    g.add(box(0.008, 0.04, 0.015, M.gunmetal, -0.032, -0.005, -0.26 - i*0.038));
-  }
-  for (let i = 0; i < 9; i++) g.add(box(0.062, 0.005, 0.014, M.picatinny, 0, 0.038, -0.24 - i*0.03));
   g.add(cyl(0.014, 0.016, 0.52, 14, M.gunmetal, 0, 0.01, -0.48, Math.PI/2, 0, 0));
-  g.add(cyl(0.012, 0.012, 0.38, 10, M.gunmetal, 0, 0.048, -0.42, Math.PI/2, 0, 0));
-  g.add(cyl(0.02, 0.02, 0.07, 14, M.gunmetal, 0, 0.01, -0.74, Math.PI/2, 0, 0));
-  for (let i = 0; i < 5; i++) g.add(box(0.036, 0.006, 0.012, M.gunmetal, 0, 0.026, -0.73 + i*0.014));
   g.add(box(0.066, 0.065, 0.07, M.gunmetal, 0, -0.005, -0.36));
-  g.add(box(0.055, 0.05, 0.12, M.polymer2, 0, 0.09, -0.07));
-  g.add(box(0.045, 0.055, 0.008, M.gunmetal, 0, 0.09, -0.13));
-  g.add(box(0.045, 0.055, 0.008, M.gunmetal, 0, 0.09, -0.01));
-  g.add(cyl(0.02, 0.02, 0.006, 16, M.lens, 0, 0.09, -0.08, Math.PI/2, 0, 0));
-  const rdot = new THREE.Mesh(new THREE.SphereGeometry(0.0025, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffaa00 }));
-  rdot.position.set(0, 0.09, -0.075); g.add(rdot);
-  g.add(box(0.028, 0.04, 0.028, M.gunmetal, 0, 0.065, -0.10));
-  g.add(box(0.028, 0.04, 0.028, M.gunmetal, 0, 0.065, 0.0));
-  const legL = box(0.012, 0.18, 0.012, M.gunmetal, -0.06, -0.11, -0.32);
-  legL.rotation.z = -0.4; g.add(legL);
-  const legR = box(0.012, 0.18, 0.012, M.gunmetal, 0.06, -0.11, -0.32);
-  legR.rotation.z = 0.4; g.add(legR);
   const mag = box(0.045, 0.22, 0.07, M.polymer, 0, -0.17, -0.13);
   mag.rotation.x = -0.15; g.add(mag);
-  for (let i = 0; i < 6; i++) g.add(box(0.04, 0.008, 0.058, M.brass, 0, -0.09 - i*0.035, -0.13, -0.15, 0, 0));
   const grip = box(0.05, 0.15, 0.06, M.rubber, 0, -0.13, 0.025);
   grip.rotation.x = 0.25; g.add(grip);
-  for (let i = 0; i < 6; i++) g.add(box(0.051, 0.005, 0.062, M.polymer2, 0, -0.07 - i*0.023, 0.025, 0.25, 0, 0));
-  g.add(box(0.058, 0.008, 0.08, M.polymer, 0, -0.06, -0.01));
-  g.add(box(0.008, 0.034, 0.008, M.polymer, 0, -0.042, 0.028));
-  g.add(box(0.008, 0.024, 0.005, M.chrome, 0, -0.046, 0.01));
   g.add(cyl(0.022, 0.022, 0.17, 12, M.polymer2, 0, 0, 0.15, Math.PI/2, 0, 0));
   g.add(box(0.058, 0.10, 0.20, M.tan, 0, -0.01, 0.26));
-  g.add(box(0.062, 0.12, 0.024, M.rubber, 0, -0.01, 0.37));
-  g.add(box(0.052, 0.024, 0.12, M.tan2, 0, 0.05, 0.26));
   return g;
 }
-function buildRifleV4() { // AK-47 стиль дерево
+function buildRifleV4() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(box(0.065, 0.09, 0.30, M.gunmetal, 0, 0.0, -0.05));
   g.add(box(0.06, 0.06, 0.22, M.wood, 0, -0.05, -0.30));
   g.add(cyl(0.013, 0.015, 0.40, 12, M.gunmetal, 0, 0.01, -0.48, Math.PI/2, 0, 0));
-  g.add(cyl(0.011, 0.011, 0.26, 10, M.gunmetal, 0, 0.04, -0.40, Math.PI/2, 0, 0));
-  g.add(cyl(0.018, 0.018, 0.05, 12, M.gunmetal, 0, 0.01, -0.70, Math.PI/2, 0, 0));
-  g.add(box(0.06, 0.07, 0.06, M.gunmetal, 0, -0.005, -0.30));
-  // магазин изогнутый
   const mag = box(0.04, 0.24, 0.07, M.gunmetal2, 0, -0.18, -0.10);
   mag.rotation.x = -0.25; g.add(mag);
-  for (let i = 0; i < 5; i++) g.add(box(0.036, 0.008, 0.06, M.brass, 0, -0.10 - i*0.04, -0.10, -0.25, 0, 0));
   const grip = box(0.05, 0.14, 0.06, M.wood, 0, -0.12, 0.03);
   grip.rotation.x = 0.25; g.add(grip);
   const stock = box(0.055, 0.10, 0.28, M.wood, 0, -0.01, 0.20);
   stock.rotation.x = -0.05; g.add(stock);
-  g.add(box(0.06, 0.12, 0.022, M.rubber, 0, -0.01, 0.34));
-  g.add(box(0.04, 0.05, 0.06, M.polymer2, 0, 0.07, -0.02));
-  g.add(box(0.03, 0.06, 0.008, M.gunmetal, 0, 0.07, -0.06));
-  g.add(box(0.03, 0.06, 0.008, M.gunmetal, 0, 0.07, 0.02));
   return g;
 }
-function buildRifleV5() { // SCAR-H тактическая
+function buildRifleV5() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(box(0.065, 0.09, 0.34, M.olive, 0, 0.0, -0.05));
   g.add(box(0.062, 0.07, 0.30, M.olive, 0, -0.06, -0.34));
-  for (let i = 0; i < 9; i++) g.add(box(0.064, 0.005, 0.014, M.picatinny, 0, 0.035, -0.22 - i*0.03));
   g.add(cyl(0.014, 0.016, 0.46, 12, M.gunmetal, 0, 0.01, -0.46, Math.PI/2, 0, 0));
-  g.add(cyl(0.012, 0.012, 0.34, 10, M.gunmetal, 0, 0.048, -0.40, Math.PI/2, 0, 0));
-  g.add(cyl(0.02, 0.02, 0.06, 12, M.gunmetal, 0, 0.01, -0.71, Math.PI/2, 0, 0));
-  for (let i = 0; i < 4; i++) g.add(box(0.036, 0.006, 0.01, M.gunmetal, 0, 0.026, -0.70 + i*0.014));
-  g.add(box(0.055, 0.05, 0.14, M.polymer2, 0, 0.09, -0.06));
-  g.add(box(0.042, 0.05, 0.008, M.gunmetal, 0, 0.09, -0.13));
-  g.add(box(0.042, 0.05, 0.008, M.gunmetal, 0, 0.09, 0.01));
-  g.add(cyl(0.018, 0.018, 0.006, 16, M.lens, 0, 0.09, -0.07, Math.PI/2, 0, 0));
-  const rdot = new THREE.Mesh(new THREE.SphereGeometry(0.0025, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff2200 }));
-  rdot.position.set(0, 0.09, -0.067); g.add(rdot);
-  g.add(box(0.028, 0.04, 0.028, M.gunmetal, 0, 0.06, -0.10));
-  g.add(box(0.028, 0.04, 0.028, M.gunmetal, 0, 0.06, -0.02));
   const mag = box(0.045, 0.18, 0.07, M.polymer, 0, -0.15, -0.12);
   mag.rotation.x = -0.15; g.add(mag);
   const grip = box(0.05, 0.14, 0.06, M.rubber, 0, -0.12, 0.03);
   grip.rotation.x = 0.25; g.add(grip);
   g.add(cyl(0.02, 0.02, 0.16, 12, M.polymer2, 0, 0, 0.15, Math.PI/2, 0, 0));
   g.add(box(0.055, 0.10, 0.20, M.olive, 0, -0.01, 0.27));
-  g.add(box(0.06, 0.12, 0.022, M.rubber, 0, -0.01, 0.38));
   return g;
 }
-
-// ----- ДРОБОВИКИ -----
 function buildShotgunV1() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(cyl(0.022, 0.022, 0.55, 16, M.gunmetal, 0, 0.03, -0.42, Math.PI/2, 0, 0));
   g.add(cyl(0.016, 0.016, 0.5, 12, M.gunmetal, 0, -0.015, -0.4, Math.PI/2, 0, 0));
-  g.add(cyl(0.025, 0.025, 0.03, 16, M.gunmetal, 0, 0.03, -0.7, Math.PI/2, 0, 0));
-  g.add(box(0.006, 0.02, 0.006, M.brass, 0, 0.055, -0.66));
   g.add(box(0.065, 0.055, 0.14, M.wood, 0, -0.015, -0.28));
-  for (let i = 0; i < 7; i++) g.add(box(0.067, 0.05, 0.006, M.wood2, 0, -0.015, -0.23 - i*0.015));
   g.add(box(0.07, 0.09, 0.22, M.gunmetal, 0, 0.005, -0.05));
-  g.add(box(0.005, 0.035, 0.07, M.polymer, 0.036, 0.005, -0.05));
-  g.add(box(0.055, 0.008, 0.07, M.polymer, 0, -0.05, 0.02));
-  g.add(box(0.008, 0.03, 0.008, M.polymer, 0, -0.035, 0.045));
-  g.add(box(0.008, 0.022, 0.005, M.chrome, 0, -0.038, 0.03));
   const stock = box(0.06, 0.10, 0.28, M.wood, 0, -0.01, 0.16);
   stock.rotation.x = -0.05; g.add(stock);
-  g.add(box(0.05, 0.02, 0.15, M.wood2, 0, 0.045, 0.14));
-  g.add(box(0.065, 0.12, 0.02, M.rubber, 0, -0.01, 0.31));
   const grip = box(0.05, 0.13, 0.055, M.wood, 0, -0.09, 0.04);
   grip.rotation.x = 0.2; g.add(grip);
-  for (let i = 0; i < 5; i++) g.add(box(0.052, 0.005, 0.057, M.wood2, 0, -0.045 - i*0.022, 0.04, 0.2, 0, 0));
-  g.add(box(0.03, 0.012, 0.008, M.gunmetal, 0, 0.06, 0.02));
-  for (let i = 0; i < 5; i++) g.add(cyl(0.006, 0.006, 0.04, 8, M.brass, 0.04, 0.03, 0.10 + i*0.035, 0, 0, Math.PI/2));
   return g;
 }
 function buildShotgunV2() {
@@ -1463,30 +1326,14 @@ function buildShotgunV2() {
   const g = new THREE.Group();
   g.add(cyl(0.024, 0.024, 0.58, 16, M.carbon, 0, 0.03, -0.44, Math.PI/2, 0, 0));
   g.add(cyl(0.018, 0.018, 0.52, 12, M.gunmetal, 0, -0.018, -0.42, Math.PI/2, 0, 0));
-  g.add(cyl(0.027, 0.027, 0.035, 16, M.gunmetal, 0, 0.03, -0.74, Math.PI/2, 0, 0));
-  g.add(box(0.007, 0.022, 0.007, M.brass, 0, 0.058, -0.70));
   g.add(box(0.07, 0.06, 0.16, M.polymer, 0, -0.01, -0.30));
-  for (let i = 0; i < 8; i++) g.add(box(0.072, 0.055, 0.007, M.polymer2, 0, -0.01, -0.24 - i*0.016));
   g.add(box(0.075, 0.095, 0.24, M.gunmetal, 0, 0.005, -0.05));
-  g.add(box(0.05, 0.04, 0.06, M.polymer2, 0, 0.075, -0.08));
-  g.add(box(0.04, 0.045, 0.006, M.gunmetal, 0, 0.075, -0.11));
-  g.add(box(0.04, 0.045, 0.006, M.gunmetal, 0, 0.075, -0.05));
-  g.add(cyl(0.018, 0.018, 0.005, 16, M.lens, 0, 0.075, -0.07, Math.PI/2, 0, 0));
-  const rdot = new THREE.Mesh(new THREE.SphereGeometry(0.0025, 6, 6), new THREE.MeshBasicMaterial({ color: 0x00ff44 }));
-  rdot.position.set(0, 0.075, -0.068); g.add(rdot);
   const grip = box(0.05, 0.15, 0.06, M.rubber, 0, -0.10, 0.05);
   grip.rotation.x = 0.22; g.add(grip);
-  for (let i = 0; i < 6; i++) g.add(box(0.052, 0.006, 0.062, M.polymer2, 0, -0.05 - i*0.023, 0.05, 0.22, 0, 0));
-  g.add(box(0.055, 0.008, 0.07, M.polymer, 0, -0.05, 0.02));
-  g.add(box(0.008, 0.032, 0.008, M.polymer, 0, -0.035, 0.045));
-  g.add(box(0.008, 0.024, 0.005, M.chrome, 0, -0.038, 0.028));
-  g.add(cyl(0.016, 0.016, 0.14, 10, M.polymer2, 0, 0.0, 0.14, Math.PI/2, 0, 0));
   const stockTop = box(0.05, 0.03, 0.20, M.polymer, 0, 0.03, 0.22);
   stockTop.rotation.x = -0.1; g.add(stockTop);
   const stockBot = box(0.05, 0.03, 0.20, M.polymer, 0, -0.03, 0.22);
   stockBot.rotation.x = 0.1; g.add(stockBot);
-  g.add(box(0.055, 0.10, 0.025, M.rubber, 0, 0.0, 0.32));
-  for (let i = 0; i < 5; i++) g.add(cyl(0.007, 0.007, 0.045, 8, M.brass, 0.045, 0.03, 0.08 + i*0.038, 0, 0, Math.PI/2));
   return g;
 }
 function buildShotgunV3() {
@@ -1494,296 +1341,261 @@ function buildShotgunV3() {
   const g = new THREE.Group();
   g.add(box(0.09, 0.12, 0.40, M.gunmetal, 0, 0.02, -0.20));
   g.add(cyl(0.026, 0.026, 0.30, 16, M.gunmetal, 0, 0.03, -0.55, Math.PI/2, 0, 0));
-  g.add(cyl(0.03, 0.03, 0.04, 16, M.gunmetal, 0, 0.03, -0.72, Math.PI/2, 0, 0));
-  for (let i = 0; i < 6; i++) g.add(box(0.03, 0.008, 0.012, M.gunmetal2, 0, 0.06, -0.50 - i*0.035));
   g.add(cyl(0.10, 0.10, 0.16, 16, M.polymer, 0, -0.12, -0.15, Math.PI/2, 0, 0));
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    g.add(cyl(0.015, 0.015, 0.18, 8, M.brass, Math.cos(a)*0.06, -0.12 + Math.sin(a)*0.06, -0.15, Math.PI/2, 0, 0));
-  }
   const grip = box(0.05, 0.14, 0.06, M.rubber, 0, -0.11, 0.05);
   grip.rotation.x = 0.22; g.add(grip);
-  for (let i = 0; i < 6; i++) g.add(box(0.052, 0.006, 0.062, M.polymer2, 0, -0.06 - i*0.022, 0.05, 0.22, 0, 0));
-  g.add(box(0.03, 0.02, 0.16, M.polymer2, 0, 0.09, -0.20));
-  g.add(box(0.02, 0.04, 0.02, M.polymer2, 0, 0.07, -0.28));
-  g.add(box(0.02, 0.04, 0.02, M.polymer2, 0, 0.07, -0.12));
-  g.add(box(0.025, 0.02, 0.012, M.polymer2, 0, 0.095, -0.35));
-  g.add(box(0.03, 0.02, 0.012, M.polymer2, 0, 0.095, -0.05));
-  g.add(box(0.06, 0.01, 0.08, M.polymer, 0, -0.06, 0.0));
-  g.add(box(0.01, 0.035, 0.01, M.polymer, 0, -0.04, 0.025));
-  g.add(box(0.01, 0.026, 0.006, M.chrome, 0, -0.044, 0.008));
   g.add(cyl(0.02, 0.02, 0.16, 12, M.polymer2, 0, 0.02, 0.16, Math.PI/2, 0, 0));
   g.add(box(0.06, 0.10, 0.20, M.polymer, 0, 0.0, 0.27));
-  g.add(box(0.065, 0.12, 0.025, M.rubber, 0, 0.0, 0.38));
   return g;
 }
-function buildShotgunV4() { // обрез
+function buildShotgunV4() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(cyl(0.03, 0.03, 0.35, 16, M.gunmetal, 0, 0.03, -0.28, Math.PI/2, 0, 0));
   g.add(cyl(0.02, 0.02, 0.30, 12, M.gunmetal, 0, -0.02, -0.26, Math.PI/2, 0, 0));
-  g.add(cyl(0.033, 0.033, 0.03, 16, M.gunmetal, 0, 0.03, -0.46, Math.PI/2, 0, 0));
   g.add(box(0.07, 0.10, 0.18, M.gunmetal, 0, 0.0, -0.02));
   const grip = box(0.055, 0.14, 0.06, M.wood, 0, -0.10, 0.06);
   grip.rotation.x = 0.25; g.add(grip);
-  g.add(box(0.06, 0.05, 0.05, M.wood2, 0, 0.05, -0.05));
-  g.add(box(0.01, 0.03, 0.006, M.polymer, 0, -0.05, 0.0));
   return g;
 }
-function buildShotgunV5() { // SPAS-12
+function buildShotgunV5() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(cyl(0.024, 0.024, 0.62, 16, M.gunmetal, 0, 0.03, -0.46, Math.PI/2, 0, 0));
   g.add(cyl(0.016, 0.016, 0.55, 12, M.gunmetal, 0, -0.02, -0.42, Math.PI/2, 0, 0));
-  g.add(cyl(0.027, 0.027, 0.04, 16, M.gunmetal, 0, 0.03, -0.78, Math.PI/2, 0, 0));
   g.add(box(0.075, 0.10, 0.26, M.carbon, 0, 0.0, -0.05));
   g.add(box(0.07, 0.07, 0.20, M.carbon, 0, -0.005, -0.32));
-  g.add(box(0.03, 0.03, 0.14, M.polymer2, 0, 0.09, -0.10));
-  g.add(box(0.022, 0.04, 0.022, M.polymer2, 0, 0.07, -0.16));
-  g.add(box(0.022, 0.04, 0.022, M.polymer2, 0, 0.07, -0.04));
   const grip = box(0.05, 0.14, 0.06, M.rubber, 0, -0.11, 0.05);
   grip.rotation.x = 0.22; g.add(grip);
   g.add(box(0.06, 0.08, 0.18, M.polymer2, 0, -0.02, 0.20));
-  g.add(box(0.065, 0.10, 0.022, M.rubber, 0, -0.02, 0.30));
-  g.add(box(0.06, 0.02, 0.06, M.polymer, 0, 0.04, -0.05));
-  for (let i = 0; i < 5; i++) g.add(cyl(0.006, 0.006, 0.04, 8, M.brass, 0.04, 0.03, 0.08 + i*0.035, 0, 0, Math.PI/2));
   return g;
 }
-
-// ----- СНАЙПЕРКИ -----
 function buildSniperV1() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(cyl(0.014, 0.018, 0.7, 16, M.gunmetal, 0, 0.02, -0.65, Math.PI/2, 0, 0));
-  g.add(cyl(0.022, 0.022, 0.06, 16, M.gunmetal, 0, 0.02, -1.0, Math.PI/2, 0, 0));
-  for (let i = 0; i < 4; i++) {
-    g.add(box(0.046, 0.005, 0.008, M.gunmetal, 0, 0.04, -1.02 + i*0.014));
-    g.add(box(0.046, 0.005, 0.008, M.gunmetal, 0, 0.0, -1.02 + i*0.014));
-  }
   g.add(box(0.06, 0.055, 0.4, M.polymer, 0, -0.005, -0.42));
-  for (let i = 0; i < 6; i++) {
-    g.add(box(0.008, 0.025, 0.012, M.gunmetal, 0.032, -0.005, -0.28 - i*0.05));
-    g.add(box(0.008, 0.025, 0.012, M.gunmetal, -0.032, -0.005, -0.28 - i*0.05));
-  }
   g.add(box(0.065, 0.09, 0.3, M.gunmetal, 0, 0.0, -0.05));
-  for (let i = 0; i < 8; i++) g.add(box(0.055, 0.008, 0.02, M.polymer, 0, 0.05, -0.15 + i*0.025));
-  g.add(cyl(0.008, 0.008, 0.06, 8, M.chrome, 0.05, 0.0, 0.02, 0, 0, Math.PI/2));
-  const bolt = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 8), M.chrome);
-  bolt.position.set(0.08, 0.0, 0.02); g.add(bolt);
   g.add(box(0.06, 0.11, 0.32, M.polymer, 0, -0.01, 0.22));
-  g.add(box(0.055, 0.025, 0.14, M.rubber, 0, 0.055, 0.20));
-  g.add(box(0.07, 0.13, 0.025, M.rubber, 0, -0.01, 0.40));
   const grip = box(0.05, 0.14, 0.055, M.rubber, 0, -0.11, 0.03);
   grip.rotation.x = 0.22; g.add(grip);
-  for (let i = 0; i < 5; i++) g.add(box(0.052, 0.005, 0.057, M.polymer2, 0, -0.07 - i*0.022, 0.03, 0.22, 0, 0));
-  g.add(box(0.055, 0.008, 0.08, M.polymer, 0, -0.05, 0.02));
-  g.add(box(0.008, 0.03, 0.008, M.polymer, 0, -0.033, 0.05));
-  g.add(box(0.008, 0.024, 0.005, M.chrome, 0, -0.04, 0.03));
-  g.add(box(0.045, 0.08, 0.06, M.polymer, 0, -0.09, -0.12));
-  g.add(box(0.05, 0.008, 0.065, M.rubber, 0, -0.135, -0.12));
-  g.add(box(0.04, 0.03, 0.08, M.gunmetal, 0, 0.07, -0.08));
-  g.add(box(0.04, 0.03, 0.08, M.gunmetal, 0, 0.07, 0.06));
   g.add(cyl(0.028, 0.028, 0.32, 16, M.polymer, 0, 0.10, -0.05, Math.PI/2, 0, 0));
-  g.add(cyl(0.035, 0.035, 0.03, 16, M.gunmetal, 0, 0.10, -0.21, Math.PI/2, 0, 0));
-  g.add(cyl(0.033, 0.033, 0.004, 16, M.glass, 0, 0.10, -0.222, Math.PI/2, 0, 0));
-  g.add(cyl(0.032, 0.032, 0.03, 16, M.gunmetal, 0, 0.10, 0.11, Math.PI/2, 0, 0));
-  g.add(cyl(0.03, 0.03, 0.004, 16, M.glass, 0, 0.10, 0.122, Math.PI/2, 0, 0));
-  g.add(cyl(0.032, 0.032, 0.015, 12, M.gunmetal, 0, 0.10, -0.13, Math.PI/2, 0, 0));
-  g.add(cyl(0.032, 0.032, 0.015, 12, M.gunmetal, 0, 0.10, 0.03, Math.PI/2, 0, 0));
-  g.add(cyl(0.014, 0.014, 0.02, 10, M.gunmetal, 0.035, 0.10, -0.05, 0, 0, Math.PI/2));
-  g.add(cyl(0.014, 0.014, 0.02, 10, M.gunmetal, 0, 0.135, -0.05, Math.PI/2, 0, 0));
-  const rdot = new THREE.Mesh(new THREE.SphereGeometry(0.002, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff2200 }));
-  rdot.position.set(0, 0.10, 0.06); g.add(rdot);
   return g;
 }
 function buildSniperV2() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(cyl(0.022, 0.026, 0.85, 16, M.gunmetal, 0, 0.02, -0.72, Math.PI/2, 0, 0));
-  g.add(cyl(0.035, 0.035, 0.10, 16, M.gunmetal, 0, 0.02, -1.15, Math.PI/2, 0, 0));
-  for (let i = 0; i < 6; i++) {
-    g.add(box(0.07, 0.008, 0.014, M.gunmetal, 0, 0.05, -1.19 + i*0.016));
-    g.add(box(0.07, 0.008, 0.014, M.gunmetal, 0, -0.01, -1.19 + i*0.016));
-  }
   g.add(box(0.08, 0.10, 0.45, M.carbon, 0, 0.0, -0.10));
-  g.add(box(0.07, 0.07, 0.30, M.carbon, 0, -0.01, -0.50));
-  for (let i = 0; i < 6; i++) {
-    g.add(box(0.01, 0.04, 0.018, M.gunmetal, 0.038, -0.01, -0.38 - i*0.045));
-    g.add(box(0.01, 0.04, 0.018, M.gunmetal, -0.038, -0.01, -0.38 - i*0.045));
-  }
   g.add(box(0.07, 0.06, 0.22, M.polymer2, 0, 0.10, -0.10));
-  g.add(box(0.055, 0.065, 0.01, M.gunmetal, 0, 0.10, -0.22));
-  g.add(box(0.055, 0.065, 0.01, M.gunmetal, 0, 0.10, 0.02));
-  g.add(cyl(0.025, 0.025, 0.008, 16, M.lens, 0, 0.10, -0.18, Math.PI/2, 0, 0));
-  const rdot = new THREE.Mesh(new THREE.SphereGeometry(0.003, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff2200 }));
-  rdot.position.set(0, 0.10, -0.17); g.add(rdot);
-  g.add(box(0.035, 0.05, 0.035, M.gunmetal, 0, 0.07, -0.16));
-  g.add(box(0.035, 0.05, 0.035, M.gunmetal, 0, 0.07, 0.0));
-  const legL = box(0.015, 0.22, 0.015, M.gunmetal, -0.08, -0.14, -0.42);
-  legL.rotation.z = -0.4; g.add(legL);
-  const legR = box(0.015, 0.22, 0.015, M.gunmetal, 0.08, -0.14, -0.42);
-  legR.rotation.z = 0.4; g.add(legR);
   const grip = box(0.055, 0.16, 0.065, M.rubber, 0, -0.14, 0.04);
   grip.rotation.x = 0.22; g.add(grip);
-  for (let i = 0; i < 6; i++) g.add(box(0.057, 0.006, 0.067, M.polymer2, 0, -0.07 - i*0.024, 0.04, 0.22, 0, 0));
-  g.add(box(0.065, 0.01, 0.09, M.polymer, 0, -0.065, 0.03));
-  g.add(box(0.01, 0.036, 0.01, M.polymer, 0, -0.045, 0.065));
-  g.add(box(0.01, 0.026, 0.006, M.chrome, 0, -0.05, 0.045));
-  g.add(box(0.05, 0.12, 0.09, M.polymer, 0, -0.15, -0.05));
-  g.add(box(0.055, 0.01, 0.10, M.rubber, 0, -0.21, -0.05));
   g.add(cyl(0.025, 0.025, 0.20, 12, M.polymer2, 0, 0.02, 0.20, Math.PI/2, 0, 0));
   g.add(box(0.07, 0.12, 0.22, M.polymer, 0, 0.0, 0.32));
-  g.add(box(0.08, 0.15, 0.03, M.rubber, 0, 0.0, 0.45));
-  g.add(box(0.06, 0.03, 0.14, M.polymer2, 0, 0.06, 0.32));
-  g.add(box(0.03, 0.02, 0.12, M.polymer2, 0, 0.14, -0.10));
-  g.add(box(0.02, 0.05, 0.02, M.polymer2, 0, 0.12, -0.16));
-  g.add(box(0.02, 0.05, 0.02, M.polymer2, 0, 0.12, -0.04));
   return g;
 }
 function buildSniperV3() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(cyl(0.016, 0.020, 0.65, 16, M.gunmetal, 0, 0.02, -0.60, Math.PI/2, 0, 0));
-  g.add(cyl(0.024, 0.024, 0.08, 16, M.gunmetal, 0, 0.02, -0.94, Math.PI/2, 0, 0));
-  for (let i = 0; i < 4; i++) g.add(box(0.05, 0.006, 0.012, M.gunmetal, 0, 0.04, -0.97 + i*0.018));
   g.add(box(0.065, 0.08, 0.38, M.wood, 0, 0.0, -0.10));
-  g.add(box(0.06, 0.06, 0.28, M.wood, 0, -0.005, -0.45));
-  for (let i = 0; i < 7; i++) g.add(box(0.062, 0.055, 0.007, M.wood2, 0, -0.005, -0.32 - i*0.036));
   g.add(cyl(0.032, 0.032, 0.28, 16, M.polymer, 0, 0.095, -0.10, Math.PI/2, 0, 0));
-  g.add(cyl(0.038, 0.038, 0.035, 16, M.gunmetal, 0, 0.095, -0.26, Math.PI/2, 0, 0));
-  g.add(cyl(0.036, 0.036, 0.005, 16, M.glass, 0, 0.095, -0.275, Math.PI/2, 0, 0));
-  g.add(cyl(0.036, 0.036, 0.035, 16, M.gunmetal, 0, 0.095, 0.06, Math.PI/2, 0, 0));
-  g.add(cyl(0.034, 0.034, 0.005, 16, M.glass, 0, 0.095, 0.075, Math.PI/2, 0, 0));
-  g.add(cyl(0.036, 0.036, 0.018, 12, M.gunmetal, 0, 0.095, -0.18, Math.PI/2, 0, 0));
-  g.add(cyl(0.036, 0.036, 0.018, 12, M.gunmetal, 0, 0.095, -0.02, Math.PI/2, 0, 0));
-  g.add(cyl(0.016, 0.016, 0.025, 10, M.gunmetal, 0.04, 0.095, -0.10, 0, 0, Math.PI/2));
-  g.add(cyl(0.016, 0.016, 0.025, 10, M.gunmetal, 0, 0.135, -0.10, Math.PI/2, 0, 0));
-  const rdot = new THREE.Mesh(new THREE.SphereGeometry(0.002, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff2200 }));
-  rdot.position.set(0, 0.095, 0.01); g.add(rdot);
   const mag = box(0.045, 0.16, 0.07, M.polymer, 0, -0.13, -0.10);
   mag.rotation.x = -0.1; g.add(mag);
-  for (let i = 0; i < 5; i++) g.add(box(0.04, 0.008, 0.058, M.brass, 0, -0.07 - i*0.03, -0.10, -0.1, 0, 0));
   const grip = box(0.05, 0.14, 0.06, M.wood, 0, -0.12, 0.04);
   grip.rotation.x = 0.22; g.add(grip);
-  for (let i = 0; i < 5; i++) g.add(box(0.052, 0.005, 0.062, M.wood2, 0, -0.07 - i*0.022, 0.04, 0.22, 0, 0));
-  g.add(box(0.06, 0.008, 0.08, M.polymer, 0, -0.055, 0.01));
-  g.add(box(0.008, 0.034, 0.008, M.polymer, 0, -0.038, 0.04));
-  g.add(box(0.008, 0.024, 0.005, M.chrome, 0, -0.042, 0.022));
   g.add(box(0.055, 0.09, 0.30, M.wood, 0, 0.0, 0.22));
-  g.add(box(0.06, 0.11, 0.028, M.rubber, 0, 0.0, 0.37));
-  g.add(box(0.05, 0.02, 0.22, M.wood2, 0, 0.05, 0.22));
-  g.add(box(0.04, 0.03, 0.12, M.wood2, 0, 0.07, 0.20));
   return g;
 }
-function buildSniperV4() { // AWM
+function buildSniperV4() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(cyl(0.016, 0.020, 0.75, 14, M.gunmetal, 0, 0.02, -0.68, Math.PI/2, 0, 0));
-  g.add(cyl(0.024, 0.024, 0.08, 14, M.gunmetal, 0, 0.02, -1.06, Math.PI/2, 0, 0));
-  for (let i = 0; i < 3; i++) g.add(box(0.05, 0.006, 0.012, M.gunmetal, 0, 0.04, -1.08 + i*0.018));
   g.add(box(0.07, 0.10, 0.36, M.olive, 0, 0.0, -0.08));
-  g.add(box(0.065, 0.06, 0.30, M.olive, 0, -0.01, -0.42));
-  for (let i = 0; i < 6; i++) {
-    g.add(box(0.01, 0.035, 0.015, M.gunmetal, 0.035, -0.01, -0.30 - i*0.045));
-    g.add(box(0.01, 0.035, 0.015, M.gunmetal, -0.035, -0.01, -0.30 - i*0.045));
-  }
-  // большая оптика
   g.add(cyl(0.03, 0.03, 0.36, 16, M.polymer, 0, 0.10, -0.10, Math.PI/2, 0, 0));
-  g.add(cyl(0.04, 0.04, 0.04, 16, M.gunmetal, 0, 0.10, -0.30, Math.PI/2, 0, 0));
-  g.add(cyl(0.038, 0.038, 0.005, 16, M.glass, 0, 0.10, -0.32, Math.PI/2, 0, 0));
-  g.add(cyl(0.038, 0.038, 0.04, 16, M.gunmetal, 0, 0.10, 0.10, Math.PI/2, 0, 0));
-  g.add(cyl(0.036, 0.036, 0.005, 16, M.glass, 0, 0.10, 0.12, Math.PI/2, 0, 0));
-  g.add(cyl(0.04, 0.04, 0.02, 12, M.gunmetal, 0, 0.10, -0.20, Math.PI/2, 0, 0));
-  g.add(cyl(0.04, 0.04, 0.02, 12, M.gunmetal, 0, 0.10, 0.0, Math.PI/2, 0, 0));
-  g.add(cyl(0.018, 0.018, 0.03, 10, M.gunmetal, 0.045, 0.10, -0.10, 0, 0, Math.PI/2));
-  g.add(cyl(0.018, 0.018, 0.03, 10, M.gunmetal, 0, 0.145, -0.10, Math.PI/2, 0, 0));
-  const rdot = new THREE.Mesh(new THREE.SphereGeometry(0.002, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff2200 }));
-  rdot.position.set(0, 0.10, 0.0); g.add(rdot);
-  const mag = box(0.05, 0.13, 0.08, M.polymer, 0, -0.14, -0.10);
-  mag.rotation.x = -0.1; g.add(mag);
   const grip = box(0.055, 0.15, 0.065, M.rubber, 0, -0.13, 0.04);
   grip.rotation.x = 0.22; g.add(grip);
-  g.add(box(0.065, 0.01, 0.09, M.polymer, 0, -0.06, 0.03));
-  g.add(box(0.01, 0.036, 0.01, M.polymer, 0, -0.04, 0.065));
-  g.add(box(0.01, 0.026, 0.006, M.chrome, 0, -0.045, 0.045));
-  g.add(cyl(0.025, 0.025, 0.20, 12, M.polymer2, 0, 0.02, 0.20, Math.PI/2, 0, 0));
   g.add(box(0.07, 0.12, 0.24, M.olive, 0, 0.0, 0.34));
-  g.add(box(0.08, 0.15, 0.03, M.rubber, 0, 0.0, 0.48));
   return g;
 }
-function buildSniperV5() { // ВСС Винторез
+function buildSniperV5() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
   g.add(cyl(0.022, 0.022, 0.55, 16, M.gunmetal, 0, 0.02, -0.42, Math.PI/2, 0, 0));
   g.add(cyl(0.024, 0.024, 0.20, 16, M.black, 0, 0.02, -0.78, Math.PI/2, 0, 0));
   g.add(box(0.06, 0.09, 0.36, M.carbon, 0, 0.0, -0.10));
-  g.add(box(0.055, 0.06, 0.24, M.carbon, 0, -0.01, -0.30));
   g.add(cyl(0.026, 0.026, 0.30, 16, M.polymer, 0, 0.095, -0.12, Math.PI/2, 0, 0));
-  g.add(cyl(0.03, 0.03, 0.03, 16, M.gunmetal, 0, 0.095, -0.27, Math.PI/2, 0, 0));
-  g.add(cyl(0.028, 0.028, 0.005, 16, M.glass, 0, 0.095, -0.285, Math.PI/2, 0, 0));
-  g.add(cyl(0.03, 0.03, 0.03, 16, M.gunmetal, 0, 0.095, 0.03, Math.PI/2, 0, 0));
-  const rdot = new THREE.Mesh(new THREE.SphereGeometry(0.002, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff2200 }));
-  rdot.position.set(0, 0.095, 0.0); g.add(rdot);
   g.add(box(0.05, 0.16, 0.07, M.polymer, 0, -0.13, -0.05));
   const grip = box(0.05, 0.13, 0.055, M.rubber, 0, -0.12, 0.04);
   grip.rotation.x = 0.22; g.add(grip);
-  g.add(cyl(0.02, 0.02, 0.16, 12, M.polymer2, 0, 0, 0.16, Math.PI/2, 0, 0));
   g.add(box(0.055, 0.10, 0.20, M.polymer, 0, -0.01, 0.26));
-  g.add(box(0.06, 0.12, 0.025, M.rubber, 0, -0.01, 0.37));
   return g;
 }
 
-// Собираем 20 стволов в единый список
+// ============================================================
+// ============== НОВЫЕ 30 СТВОЛОВ ===========================
+// ============================================================
+function buildGenericSMG(color = 0x2a2a30, barrelLen = 0.22, hasStock = true) {
+  const M = makeGunMaterials();
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.7 });
+  g.add(box(0.055, 0.07, 0.26, bodyMat, 0, 0.01, -0.05));
+  g.add(cyl(0.012, 0.014, barrelLen, 10, M.gunmetal, 0, 0.01, -0.20 - barrelLen/2, Math.PI/2, 0, 0));
+  g.add(box(0.04, 0.12, 0.06, M.polymer, 0, -0.10, -0.08));
+  const grip = box(0.045, 0.12, 0.05, M.rubber, 0, -0.10, 0.04);
+  grip.rotation.x = 0.22; g.add(grip);
+  if (hasStock) {
+    g.add(cyl(0.016, 0.016, 0.18, 8, M.polymer2, 0, 0.0, 0.14, Math.PI/2, 0, 0));
+    g.add(box(0.045, 0.08, 0.16, M.polymer, 0, -0.01, 0.24));
+  }
+  return g;
+}
+function buildGenericLMG(color = 0x3a4a3a) {
+  const M = makeGunMaterials();
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.5 });
+  g.add(box(0.08, 0.10, 0.40, bodyMat, 0, 0.0, -0.10));
+  g.add(cyl(0.016, 0.018, 0.5, 12, M.gunmetal, 0, 0.0, -0.45, Math.PI/2, 0, 0));
+  g.add(box(0.10, 0.12, 0.16, M.polymer, 0, -0.12, -0.05));
+  const grip = box(0.05, 0.14, 0.06, M.rubber, 0, -0.12, 0.08);
+  grip.rotation.x = 0.22; g.add(grip);
+  g.add(box(0.06, 0.10, 0.18, M.polymer, 0, -0.01, 0.30));
+  return g;
+}
+function buildGenericPistol(color = 0x1a1a1f) {
+  const M = makeGunMaterials();
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.8 });
+  g.add(box(0.055, 0.065, 0.24, bodyMat, 0, 0.025, -0.02));
+  g.add(cyl(0.011, 0.013, 0.07, 12, M.chrome, 0, 0.025, -0.17, Math.PI/2, 0, 0));
+  const grip = box(0.05, 0.14, 0.06, M.rubber, 0, -0.12, 0.07);
+  grip.rotation.x = 0.18; g.add(grip);
+  return g;
+}
+function buildGenericShotgun(color = 0x2a2a2e) {
+  const M = makeGunMaterials();
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.7 });
+  g.add(cyl(0.022, 0.022, 0.55, 12, M.gunmetal, 0, 0.03, -0.42, Math.PI/2, 0, 0));
+  g.add(cyl(0.016, 0.016, 0.50, 10, M.gunmetal, 0, -0.015, -0.40, Math.PI/2, 0, 0));
+  g.add(box(0.07, 0.09, 0.22, bodyMat, 0, 0.005, -0.05));
+  g.add(box(0.065, 0.055, 0.14, M.wood, 0, -0.015, -0.28));
+  const grip = box(0.05, 0.13, 0.055, M.wood, 0, -0.09, 0.04);
+  grip.rotation.x = 0.2; g.add(grip);
+  g.add(box(0.06, 0.10, 0.28, M.wood, 0, -0.01, 0.16));
+  return g;
+}
+function buildGenericSniper(color = 0x1a1a1f) {
+  const M = makeGunMaterials();
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.8 });
+  g.add(cyl(0.016, 0.020, 0.7, 12, M.gunmetal, 0, 0.02, -0.65, Math.PI/2, 0, 0));
+  g.add(box(0.065, 0.09, 0.30, bodyMat, 0, 0.0, -0.05));
+  g.add(box(0.06, 0.11, 0.32, M.polymer, 0, -0.01, 0.22));
+  const grip = box(0.05, 0.14, 0.055, M.rubber, 0, -0.11, 0.03);
+  grip.rotation.x = 0.22; g.add(grip);
+  g.add(cyl(0.028, 0.028, 0.32, 12, M.polymer, 0, 0.10, -0.05, Math.PI/2, 0, 0));
+  return g;
+}
+function buildGrenadeModel(type) {
+  const g = new THREE.Group();
+  const colors = { rgd5: 0x4a5a3a, molotov: 0xaa6622, smoke: 0x888888, flash: 0xcccccc };
+  const mat = new THREE.MeshStandardMaterial({ color: colors[type] || 0x4a5a3a, roughness: 0.8, metalness: 0.2 });
+  if (type === 'molotov') {
+    const bottle = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.18, 10), new THREE.MeshStandardMaterial({ color: 0x88aa44, transparent: true, opacity: 0.7 }));
+    bottle.position.y = 0.09; g.add(bottle);
+    g.add(cyl(0.015, 0.015, 0.06, 8, mat, 0, 0.21, 0));
+  } else {
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), mat));
+    g.add(cyl(0.012, 0.012, 0.03, 8, new THREE.MeshStandardMaterial({ color: 0x333333 }), 0, 0.06, 0));
+  }
+  return g;
+}
+
+const EXTRA_WEAPONS = [
+  { id: 'pistol_p226', cat: 'pistol', name: 'P226', model: () => buildGenericPistol(0x2a2a30), stats: { damage: 26, fireRate: 280, ammo: 15, reserve: 75, spread: 0.009, auto: false, reload: 1500, bulletSpeed: 105, adsSpreadMult: 0.15, adsFOV: 55, adsPos: { x: 0, y: -0.18, z: -0.35 }, recoil: 0.004, recoilKick: 0.014, recoilRecovery: 4.3 } },
+  { id: 'pistol_glock', cat: 'pistol', name: 'Glock-18', model: () => buildGenericPistol(0x111114), stats: { damage: 18, fireRate: 160, ammo: 20, reserve: 100, spread: 0.013, auto: false, reload: 1400, bulletSpeed: 100, adsSpreadMult: 0.18, adsFOV: 55, adsPos: { x: 0, y: -0.18, z: -0.35 }, recoil: 0.003, recoilKick: 0.011, recoilRecovery: 4.6 } },
+  { id: 'pistol_deagle', cat: 'pistol', name: 'Desert Eagle', model: () => buildGenericPistol(0x8a7a5a), stats: { damage: 55, fireRate: 500, ammo: 7, reserve: 35, spread: 0.008, auto: false, reload: 2000, bulletSpeed: 120, adsSpreadMult: 0.10, adsFOV: 50, adsPos: { x: 0, y: -0.16, z: -0.32 }, recoil: 0.012, recoilKick: 0.045, recoilRecovery: 3.0 } },
+  { id: 'pistol_fiveseven', cat: 'pistol', name: 'Five-seveN', model: () => buildGenericPistol(0x3a3a40), stats: { damage: 22, fireRate: 220, ammo: 20, reserve: 100, spread: 0.010, auto: false, reload: 1600, bulletSpeed: 115, adsSpreadMult: 0.15, adsFOV: 55, adsPos: { x: 0, y: -0.18, z: -0.35 }, recoil: 0.004, recoilKick: 0.013, recoilRecovery: 4.4 } },
+  { id: 'pistol_m1911', cat: 'pistol', name: 'M1911', model: () => buildGenericPistol(0x222222), stats: { damage: 40, fireRate: 380, ammo: 7, reserve: 42, spread: 0.009, auto: false, reload: 1700, bulletSpeed: 110, adsSpreadMult: 0.12, adsFOV: 52, adsPos: { x: 0, y: -0.18, z: -0.33 }, recoil: 0.008, recoilKick: 0.028, recoilRecovery: 3.6 } },
+  { id: 'pistol_usp', cat: 'pistol', name: 'USP-S', model: () => buildGenericPistol(0x1a1a1d), stats: { damage: 24, fireRate: 300, ammo: 12, reserve: 60, spread: 0.008, auto: false, reload: 1500, bulletSpeed: 105, adsSpreadMult: 0.14, adsFOV: 55, adsPos: { x: 0, y: -0.18, z: -0.35 }, recoil: 0.004, recoilKick: 0.013, recoilRecovery: 4.5 } },
+  { id: 'smg_mp5', cat: 'smg', name: 'MP5', model: () => buildGenericSMG(0x1a1a1f, 0.18, true), stats: { damage: 24, fireRate: 80, ammo: 30, reserve: 120, spread: 0.025, auto: true, reload: 2000, bulletSpeed: 115, adsSpreadMult: 0.20, adsFOV: 55, adsPos: { x: 0, y: -0.17, z: -0.34 }, recoil: 0.005, recoilKick: 0.018, recoilRecovery: 4.0 } },
+  { id: 'smg_mp7', cat: 'smg', name: 'MP7', model: () => buildGenericSMG(0x2a2a30, 0.16, true), stats: { damage: 22, fireRate: 70, ammo: 40, reserve: 160, spread: 0.028, auto: true, reload: 2100, bulletSpeed: 120, adsSpreadMult: 0.22, adsFOV: 55, adsPos: { x: 0, y: -0.17, z: -0.34 }, recoil: 0.005, recoilKick: 0.016, recoilRecovery: 4.2 } },
+  { id: 'smg_p90', cat: 'smg', name: 'P90', model: () => buildGenericSMG(0x2a3a4a, 0.20, true), stats: { damage: 20, fireRate: 75, ammo: 50, reserve: 100, spread: 0.030, auto: true, reload: 2400, bulletSpeed: 110, adsSpreadMult: 0.25, adsFOV: 55, adsPos: { x: 0, y: -0.17, z: -0.34 }, recoil: 0.004, recoilKick: 0.015, recoilRecovery: 4.3 } },
+  { id: 'smg_ump45', cat: 'smg', name: 'UMP-45', model: () => buildGenericSMG(0x3a3a3a, 0.20, true), stats: { damage: 30, fireRate: 100, ammo: 25, reserve: 100, spread: 0.022, auto: true, reload: 2200, bulletSpeed: 120, adsSpreadMult: 0.18, adsFOV: 52, adsPos: { x: 0, y: -0.17, z: -0.34 }, recoil: 0.007, recoilKick: 0.024, recoilRecovery: 3.5 } },
+  { id: 'smg_vector', cat: 'smg', name: 'Vector', model: () => buildGenericSMG(0x1a1a2a, 0.16, true), stats: { damage: 18, fireRate: 55, ammo: 33, reserve: 132, spread: 0.026, auto: true, reload: 2100, bulletSpeed: 125, adsSpreadMult: 0.20, adsFOV: 55, adsPos: { x: 0, y: -0.17, z: -0.34 }, recoil: 0.003, recoilKick: 0.010, recoilRecovery: 5.0 } },
+  { id: 'rifle_ak74', cat: 'rifle', name: 'AK-74', model: () => buildRifleV4(), stats: { damage: 32, fireRate: 110, ammo: 30, reserve: 120, spread: 0.020, auto: true, reload: 2400, bulletSpeed: 130, adsSpreadMult: 0.15, adsFOV: 50, adsPos: { x: 0, y: -0.16, z: -0.32 }, recoil: 0.008, recoilKick: 0.030, recoilRecovery: 3.0 } },
+  { id: 'rifle_m16', cat: 'rifle', name: 'M16A4', model: () => buildRifleV1(), stats: { damage: 28, fireRate: 85, ammo: 30, reserve: 120, spread: 0.016, auto: true, reload: 2100, bulletSpeed: 140, adsSpreadMult: 0.12, adsFOV: 48, adsPos: { x: 0, y: -0.16, z: -0.32 }, recoil: 0.005, recoilKick: 0.020, recoilRecovery: 3.8 } },
+  { id: 'rifle_aug', cat: 'rifle', name: 'AUG', model: () => buildRifleV3(), stats: { damage: 34, fireRate: 105, ammo: 30, reserve: 90, spread: 0.015, auto: true, reload: 2300, bulletSpeed: 135, adsSpreadMult: 0.12, adsFOV: 46, adsPos: { x: 0, y: -0.16, z: -0.32 }, recoil: 0.006, recoilKick: 0.025, recoilRecovery: 3.4 } },
+  { id: 'rifle_famas', cat: 'rifle', name: 'FAMAS', model: () => buildRifleV2(), stats: { damage: 26, fireRate: 90, ammo: 25, reserve: 100, spread: 0.018, auto: true, reload: 2200, bulletSpeed: 130, adsSpreadMult: 0.15, adsFOV: 48, adsPos: { x: 0, y: -0.16, z: -0.32 }, recoil: 0.006, recoilKick: 0.022, recoilRecovery: 3.6 } },
+  { id: 'rifle_galil', cat: 'rifle', name: 'Galil', model: () => buildRifleV5(), stats: { damage: 36, fireRate: 120, ammo: 35, reserve: 140, spread: 0.022, auto: true, reload: 2500, bulletSpeed: 125, adsSpreadMult: 0.17, adsFOV: 50, adsPos: { x: 0, y: -0.16, z: -0.32 }, recoil: 0.009, recoilKick: 0.032, recoilRecovery: 2.9 } },
+  { id: 'lmg_m249', cat: 'lmg', name: 'M249', model: () => buildGenericLMG(0x3a4a3a), stats: { damage: 32, fireRate: 90, ammo: 100, reserve: 200, spread: 0.035, auto: true, reload: 5000, bulletSpeed: 130, adsSpreadMult: 0.30, adsFOV: 55, adsPos: { x: 0, y: -0.18, z: -0.36 }, recoil: 0.010, recoilKick: 0.035, recoilRecovery: 2.5 } },
+  { id: 'lmg_pkm', cat: 'lmg', name: 'PKM', model: () => buildGenericLMG(0x4a3a2a), stats: { damage: 40, fireRate: 110, ammo: 100, reserve: 200, spread: 0.040, auto: true, reload: 5500, bulletSpeed: 125, adsSpreadMult: 0.35, adsFOV: 55, adsPos: { x: 0, y: -0.18, z: -0.36 }, recoil: 0.012, recoilKick: 0.040, recoilRecovery: 2.2 } },
+  { id: 'lmg_negev', cat: 'lmg', name: 'Negev', model: () => buildGenericLMG(0x2a2a2a), stats: { damage: 26, fireRate: 70, ammo: 150, reserve: 300, spread: 0.045, auto: true, reload: 6000, bulletSpeed: 135, adsSpreadMult: 0.40, adsFOV: 55, adsPos: { x: 0, y: -0.18, z: -0.36 }, recoil: 0.008, recoilKick: 0.028, recoilRecovery: 3.0 } },
+  { id: 'lmg_rpk', cat: 'lmg', name: 'RPK', model: () => buildGenericLMG(0x4a4a3a), stats: { damage: 34, fireRate: 95, ammo: 75, reserve: 150, spread: 0.030, auto: true, reload: 4200, bulletSpeed: 128, adsSpreadMult: 0.28, adsFOV: 52, adsPos: { x: 0, y: -0.18, z: -0.36 }, recoil: 0.009, recoilKick: 0.030, recoilRecovery: 2.8 } },
+  { id: 'lmg_m60', cat: 'lmg', name: 'M60', model: () => buildGenericLMG(0x3a3a2a), stats: { damage: 45, fireRate: 130, ammo: 50, reserve: 150, spread: 0.038, auto: true, reload: 4800, bulletSpeed: 120, adsSpreadMult: 0.32, adsFOV: 55, adsPos: { x: 0, y: -0.18, z: -0.36 }, recoil: 0.014, recoilKick: 0.045, recoilRecovery: 2.0 } },
+  { id: 'shotgun_remington', cat: 'shotgun', name: 'Remington 870', model: () => buildGenericShotgun(0x2a2a2e), stats: { damage: 16, fireRate: 750, ammo: 7, reserve: 35, spread: 0.14, auto: false, reload: 2400, pellets: 9, pelletSpread: 0.21, falloffStart: 7, falloffEnd: 20, pumpTime: 520, bulletSpeed: 85, adsSpreadMult: 0.5, adsFOV: 58, adsPos: { x: 0, y: -0.18, z: -0.4 }, recoil: 0.014, recoilKick: 0.055, recoilRecovery: 2.6 } },
+  { id: 'shotgun_mossberg', cat: 'shotgun', name: 'Mossberg 500', model: () => buildGenericShotgun(0x3a3a3a), stats: { damage: 17, fireRate: 800, ammo: 6, reserve: 30, spread: 0.15, auto: false, reload: 2500, pellets: 8, pelletSpread: 0.22, falloffStart: 6, falloffEnd: 18, pumpTime: 550, bulletSpeed: 80, adsSpreadMult: 0.5, adsFOV: 60, adsPos: { x: 0, y: -0.18, z: -0.4 }, recoil: 0.015, recoilKick: 0.058, recoilRecovery: 2.5 } },
+  { id: 'shotgun_saiga', cat: 'shotgun', name: 'Saiga-12', model: () => buildShotgunV3(), stats: { damage: 12, fireRate: 400, ammo: 8, reserve: 32, spread: 0.16, auto: true, reload: 2800, pellets: 7, pelletSpread: 0.23, falloffStart: 5, falloffEnd: 16, pumpTime: 0, bulletSpeed: 78, adsSpreadMult: 0.6, adsFOV: 60, adsPos: { x: 0, y: -0.18, z: -0.4 }, recoil: 0.013, recoilKick: 0.050, recoilRecovery: 2.7 } },
+  { id: 'shotgun_aa12', cat: 'shotgun', name: 'AA-12', model: () => buildShotgunV5(), stats: { damage: 10, fireRate: 300, ammo: 8, reserve: 32, spread: 0.18, auto: true, reload: 2800, pellets: 7, pelletSpread: 0.25, falloffStart: 5, falloffEnd: 15, pumpTime: 0, bulletSpeed: 75, adsSpreadMult: 0.6, adsFOV: 60, adsPos: { x: 0, y: -0.18, z: -0.4 }, recoil: 0.012, recoilKick: 0.048, recoilRecovery: 2.8 } },
+  { id: 'sniper_barrett', cat: 'sniper', name: 'Barrett M82', model: () => buildGenericSniper(0x2a2a2a), stats: { damage: 200, fireRate: 2000, ammo: 5, reserve: 20, spread: 0.001, auto: false, reload: 3500, bulletSpeed: 260, adsSpreadMult: 0.04, adsFOV: 16, adsPos: { x: 0, y: -0.16, z: -0.2 }, scope: true, recoil: 0.030, recoilKick: 0.15, recoilRecovery: 1.6 } },
+  { id: 'sniper_awp', cat: 'sniper', name: 'AWP', model: () => buildSniperV4(), stats: { damage: 150, fireRate: 1500, ammo: 5, reserve: 25, spread: 0.001, auto: false, reload: 3200, bulletSpeed: 240, adsSpreadMult: 0.04, adsFOV: 16, adsPos: { x: 0, y: -0.16, z: -0.2 }, scope: true, recoil: 0.024, recoilKick: 0.12, recoilRecovery: 1.9 } },
+  { id: 'sniper_svd', cat: 'sniper', name: 'SVD', model: () => buildSniperV3(), stats: { damage: 80, fireRate: 400, ammo: 10, reserve: 40, spread: 0.003, auto: false, reload: 2800, bulletSpeed: 210, adsSpreadMult: 0.08, adsFOV: 25, adsPos: { x: 0, y: -0.16, z: -0.22 }, scope: true, recoil: 0.015, recoilKick: 0.065, recoilRecovery: 2.5 } },
+  { id: 'sniper_m24', cat: 'sniper', name: 'M24', model: () => buildSniperV1(), stats: { damage: 130, fireRate: 1400, ammo: 5, reserve: 25, spread: 0.001, auto: false, reload: 3000, bulletSpeed: 230, adsSpreadMult: 0.05, adsFOV: 18, adsPos: { x: 0, y: -0.16, z: -0.2 }, scope: true, recoil: 0.022, recoilKick: 0.11, recoilRecovery: 2.0 } },
+  { id: 'grenade_rgd5', cat: 'grenade', name: 'РГД-5', model: () => buildGrenadeModel('rgd5'), stats: { damage: 90, fireRate: 800, ammo: 1, reserve: 3, spread: 0, auto: false, reload: 800, bulletSpeed: 18, grenade: true, throwable: true, fuse: 2.5, radius: 6 } },
+  { id: 'grenade_molotov', cat: 'grenade', name: 'Молотов', model: () => buildGrenadeModel('molotov'), stats: { damage: 15, fireRate: 1000, ammo: 1, reserve: 2, spread: 0, auto: false, reload: 1000, bulletSpeed: 16, grenade: true, throwable: true, fuse: 0, radius: 4, fire: true, fireDuration: 7 } },
+  { id: 'grenade_smoke', cat: 'grenade', name: 'Дымовая шашка', model: () => buildGrenadeModel('smoke'), stats: { damage: 0, fireRate: 1000, ammo: 1, reserve: 2, spread: 0, auto: false, reload: 1000, bulletSpeed: 15, grenade: true, throwable: true, fuse: 1.5, radius: 6, smoke: true, smokeDuration: 12 } },
+  { id: 'grenade_flash', cat: 'grenade', name: 'Слепящая граната', model: () => buildGrenadeModel('flash'), stats: { damage: 5, fireRate: 1000, ammo: 1, reserve: 2, spread: 0, auto: false, reload: 1000, bulletSpeed: 17, grenade: true, throwable: true, fuse: 1.8, radius: 8, flash: true, flashDuration: 4 } }
+];
+
 const WEAPON_LIST = [
-  // Пистолеты (5)
   { id: 'pistol_v1',  cat: 'pistol',  name: 'Пистолет «Классик»',       model: buildPistolV1, stats: { damage: 22, fireRate: 280, ammo: 15, reserve: 75, spread: 0.008, auto: false, reload: 1400, bulletSpeed: 100, adsSpreadMult: 0.15, adsFOV: 55, adsPos: { x: 0, y: -0.18, z: -0.35 }, recoil: 0.003, recoilKick: 0.012, recoilRecovery: 4.5 } },
   { id: 'pistol_v2',  cat: 'pistol',  name: 'Пистолет «Тактик»',        model: buildPistolV2, stats: { damage: 20, fireRate: 180, ammo: 20, reserve: 100, spread: 0.012, auto: false, reload: 1600, bulletSpeed: 100, adsSpreadMult: 0.20, adsFOV: 55, adsPos: { x: 0, y: -0.18, z: -0.35 }, recoil: 0.004, recoilKick: 0.013, recoilRecovery: 4.2 } },
   { id: 'pistol_v3',  cat: 'pistol',  name: 'Пистолет «Магнум»',       model: buildPistolV3, stats: { damage: 38, fireRate: 420, ammo: 8,  reserve: 40, spread: 0.010, auto: false, reload: 1800, bulletSpeed: 110, adsSpreadMult: 0.12, adsFOV: 55, adsPos: { x: 0, y: -0.18, z: -0.35 }, recoil: 0.009, recoilKick: 0.03, recoilRecovery: 3.5 } },
   { id: 'pistol_v4',  cat: 'pistol',  name: 'Револьвер «Судья»',       model: buildPistolV4, stats: { damage: 55, fireRate: 600, ammo: 6,  reserve: 30, spread: 0.006, auto: false, reload: 2400, bulletSpeed: 120, adsSpreadMult: 0.10, adsFOV: 50, adsPos: { x: 0, y: -0.16, z: -0.32 }, recoil: 0.012, recoilKick: 0.045, recoilRecovery: 3.0 } },
   { id: 'pistol_v5',  cat: 'pistol',  name: 'Автоматический пистолет', model: buildPistolV5, stats: { damage: 16, fireRate: 90,  ammo: 25, reserve: 100, spread: 0.025, auto: true,  reload: 1800, bulletSpeed: 95,  adsSpreadMult: 0.25, adsFOV: 55, adsPos: { x: 0, y: -0.18, z: -0.35 }, recoil: 0.005, recoilKick: 0.016, recoilRecovery: 4.0 } },
-
-  // Винтовки (5)
   { id: 'rifle_v1',   cat: 'rifle',   name: 'Штурмовая M4',            model: buildRifleV1,  stats: { damage: 28, fireRate: 95,  ammo: 30, reserve: 120, spread: 0.020, auto: true,  reload: 2200, bulletSpeed: 130, adsSpreadMult: 0.15, adsFOV: 50, adsPos: { x: 0, y: -0.16, z: -0.32 }, recoil: 0.005, recoilKick: 0.022, recoilRecovery: 3.5 } },
   { id: 'rifle_v2',   cat: 'rifle',   name: 'Тактическая AR',          model: buildRifleV2,  stats: { damage: 30, fireRate: 100, ammo: 32, reserve: 128, spread: 0.018, auto: true,  reload: 2100, bulletSpeed: 135, adsSpreadMult: 0.14, adsFOV: 48, adsPos: { x: 0, y: -0.16, z: -0.32 }, recoil: 0.006, recoilKick: 0.024, recoilRecovery: 3.3 } },
   { id: 'rifle_v3',   cat: 'rifle',   name: 'Пустынная SCAR',          model: buildRifleV3,  stats: { damage: 35, fireRate: 115, ammo: 25, reserve: 100, spread: 0.016, auto: true,  reload: 2400, bulletSpeed: 140, adsSpreadMult: 0.12, adsFOV: 45, adsPos: { x: 0, y: -0.16, z: -0.32 }, recoil: 0.007, recoilKick: 0.028, recoilRecovery: 3.0 } },
   { id: 'rifle_v4',   cat: 'rifle',   name: 'AK-47',                   model: buildRifleV4,  stats: { damage: 40, fireRate: 130, ammo: 30, reserve: 120, spread: 0.025, auto: true,  reload: 2600, bulletSpeed: 125, adsSpreadMult: 0.18, adsFOV: 50, adsPos: { x: 0, y: -0.16, z: -0.32 }, recoil: 0.010, recoilKick: 0.035, recoilRecovery: 2.8 } },
   { id: 'rifle_v5',   cat: 'rifle',   name: 'SCAR-H',                  model: buildRifleV5,  stats: { damage: 45, fireRate: 145, ammo: 20, reserve: 80,  spread: 0.022, auto: true,  reload: 2700, bulletSpeed: 145, adsSpreadMult: 0.15, adsFOV: 48, adsPos: { x: 0, y: -0.16, z: -0.32 }, recoil: 0.011, recoilKick: 0.038, recoilRecovery: 2.7 } },
-
-  // Дробовики (5)
   { id: 'shotgun_v1', cat: 'shotgun', name: 'Помповый дробовик',       model: buildShotgunV1, stats: { damage: 14, fireRate: 800, ammo: 6, reserve: 30, spread: 0.15, auto: false, reload: 2500, pellets: 8, pelletSpread: 0.22, falloffStart: 6, falloffEnd: 18, pumpTime: 550, bulletSpeed: 80, adsSpreadMult: 0.5, adsFOV: 60, adsPos: { x: 0, y: -0.18, z: -0.4 }, recoil: 0.015, recoilKick: 0.06, recoilRecovery: 2.5 } },
   { id: 'shotgun_v2', cat: 'shotgun', name: 'Тактический дробовик',    model: buildShotgunV2, stats: { damage: 16, fireRate: 750, ammo: 7, reserve: 35, spread: 0.13, auto: false, reload: 2300, pellets: 9, pelletSpread: 0.20, falloffStart: 7, falloffEnd: 20, pumpTime: 500, bulletSpeed: 85, adsSpreadMult: 0.5, adsFOV: 58, adsPos: { x: 0, y: -0.18, z: -0.4 }, recoil: 0.014, recoilKick: 0.055, recoilRecovery: 2.6 } },
   { id: 'shotgun_v3', cat: 'shotgun', name: 'Автоматический AA-12',    model: buildShotgunV3, stats: { damage: 10, fireRate: 300, ammo: 8, reserve: 32, spread: 0.18, auto: true,  reload: 2800, pellets: 7, pelletSpread: 0.25, falloffStart: 5, falloffEnd: 15, pumpTime: 0, bulletSpeed: 75, adsSpreadMult: 0.6, adsFOV: 60, adsPos: { x: 0, y: -0.18, z: -0.4 }, recoil: 0.012, recoilKick: 0.05, recoilRecovery: 2.8 } },
   { id: 'shotgun_v4', cat: 'shotgun', name: 'Обрез',                  model: buildShotgunV4, stats: { damage: 20, fireRate: 900, ammo: 2, reserve: 20, spread: 0.30, auto: false, reload: 1800, pellets: 12, pelletSpread: 0.35, falloffStart: 4, falloffEnd: 12, pumpTime: 600, bulletSpeed: 70, adsSpreadMult: 0.7, adsFOV: 65, adsPos: { x: 0, y: -0.18, z: -0.4 }, recoil: 0.02, recoilKick: 0.08, recoilRecovery: 2.2 } },
   { id: 'shotgun_v5', cat: 'shotgun', name: 'SPAS-12',                 model: buildShotgunV5, stats: { damage: 18, fireRate: 650, ammo: 6, reserve: 28, spread: 0.14, auto: false, reload: 2600, pellets: 10, pelletSpread: 0.21, falloffStart: 6, falloffEnd: 18, pumpTime: 520, bulletSpeed: 82, adsSpreadMult: 0.5, adsFOV: 58, adsPos: { x: 0, y: -0.18, z: -0.4 }, recoil: 0.016, recoilKick: 0.062, recoilRecovery: 2.4 } },
-
-  // Снайперки (5)
   { id: 'sniper_v1',  cat: 'sniper',  name: 'Снайперская болтовая',    model: buildSniperV1,  stats: { damage: 120, fireRate: 1400, ammo: 5, reserve: 25, spread: 0.001, auto: false, reload: 3000, bulletSpeed: 220, adsSpreadMult: 0.05, adsFOV: 20, adsPos: { x: 0, y: -0.16, z: -0.2 }, scope: true, recoil: 0.02, recoilKick: 0.1, recoilRecovery: 2.0 } },
   { id: 'sniper_v2',  cat: 'sniper',  name: 'Противотанковая',        model: buildSniperV2,  stats: { damage: 180, fireRate: 1800, ammo: 5, reserve: 20, spread: 0.001, auto: false, reload: 3400, bulletSpeed: 250, adsSpreadMult: 0.05, adsFOV: 18, adsPos: { x: 0, y: -0.16, z: -0.2 }, scope: true, recoil: 0.028, recoilKick: 0.14, recoilRecovery: 1.8 } },
   { id: 'sniper_v3',  cat: 'sniper',  name: 'Полуавтомат SVD',        model: buildSniperV3,  stats: { damage: 75, fireRate: 350, ammo: 10, reserve: 40, spread: 0.003, auto: false, reload: 2800, bulletSpeed: 200, adsSpreadMult: 0.08, adsFOV: 25, adsPos: { x: 0, y: -0.16, z: -0.22 }, scope: true, recoil: 0.014, recoilKick: 0.06, recoilRecovery: 2.6 } },
   { id: 'sniper_v4',  cat: 'sniper',  name: 'AWM',                    model: buildSniperV4,  stats: { damage: 150, fireRate: 1500, ammo: 5, reserve: 25, spread: 0.001, auto: false, reload: 3200, bulletSpeed: 240, adsSpreadMult: 0.04, adsFOV: 16, adsPos: { x: 0, y: -0.16, z: -0.2 }, scope: true, recoil: 0.024, recoilKick: 0.12, recoilRecovery: 1.9 } },
-  { id: 'sniper_v5',  cat: 'sniper',  name: 'ВСС «Винторез»',         model: buildSniperV5,  stats: { damage: 95, fireRate: 800, ammo: 10, reserve: 50, spread: 0.004, auto: false, reload: 2600, bulletSpeed: 210, adsSpreadMult: 0.10, adsFOV: 28, adsPos: { x: 0, y: -0.16, z: -0.22 }, scope: true, recoil: 0.016, recoilKick: 0.07, recoilRecovery: 2.4 } }
+  { id: 'sniper_v5',  cat: 'sniper',  name: 'ВСС «Винторез»',         model: buildSniperV5,  stats: { damage: 95, fireRate: 800, ammo: 10, reserve: 50, spread: 0.004, auto: false, reload: 2600, bulletSpeed: 210, adsSpreadMult: 0.10, adsFOV: 28, adsPos: { x: 0, y: -0.16, z: -0.22 }, scope: true, recoil: 0.016, recoilKick: 0.07, recoilRecovery: 2.4 } },
+  ...EXTRA_WEAPONS
 ];
 
-// Строим карту характеристик
 WEAPON_LIST.forEach(w => {
   WEAPON_DEFS[w.id] = { ...w.stats, category: w.cat, displayName: w.name, model: w.model };
 });
-// Совместимость с одиночным WEAPONS (базовые типы) — для оружия врагов
 Object.assign(WEAPONS, {
   pistol:  WEAPON_DEFS.pistol_v1,
   rifle:   WEAPON_DEFS.rifle_v1,
   shotgun: WEAPON_DEFS.shotgun_v1,
-  sniper:  WEAPON_DEFS.sniper_v1
+  sniper:  WEAPON_DEFS.sniper_v1,
+  smg:     WEAPON_DEFS.smg_mp5,
+  lmg:     WEAPON_DEFS.lmg_m249,
+  grenade: WEAPON_DEFS.grenade_rgd5
 });
 
-// Текущее выбранное оружие (полный id)
 let selectedWeaponId = 'rifle_v1';
+let selectedGrenadeId = 'grenade_rgd5';
 
 function getCurrentWeaponStats() {
   return WEAPON_DEFS[selectedWeaponId] || WEAPON_DEFS.rifle_v1;
 }
 function getCurrentWeaponCategory() {
   return getCurrentWeaponStats().category || 'rifle';
+}
+function getCurrentGrenadeStats() {
+  return WEAPON_DEFS[selectedGrenadeId] || WEAPON_DEFS.grenade_rgd5;
 }
 
 // === МЕНЮ ВЫБОРА ОРУЖИЯ ===
@@ -1797,16 +1609,22 @@ function buildWeaponPickerUI() {
     const el = document.createElement('div');
     el.className = 'wp-item' + (w.id === selectedWeaponId ? ' selected' : '');
     el.dataset.weaponId = w.id;
+    const catLabel = w.cat === 'grenade' ? 'ГРАНАТА' : w.cat.toUpperCase();
     el.innerHTML = `
-      <div class="wp-cat">${w.cat}</div>
+      <div class="wp-cat">${catLabel}</div>
       <div class="wp-name">${w.name}</div>
       <div class="wp-stats">
-        Урон: <span>${w.stats.damage}</span><br>
-        Магазин: <span>${w.stats.ammo}</span><br>
-        Скорострельность: <span>${Math.round(60000/w.stats.fireRate)}/мин</span>
+        ${w.stats.grenade ? 'Урон: <span>' + w.stats.damage + '</span><br>Заряд: <span>' + w.stats.ammo + '</span>' : 'Урон: <span>' + w.stats.damage + '</span><br>Магазин: <span>' + w.stats.ammo + '</span><br>Скорострельность: <span>' + Math.round(60000/w.stats.fireRate) + '/мин</span>'}
       </div>
     `;
-    el.addEventListener('click', () => selectWeapon(w.id));
+    el.addEventListener('click', () => {
+      if (w.cat === 'grenade') {
+        selectGrenade(w.id);
+      } else {
+        selectWeapon(w.id);
+      }
+      buildWeaponPickerUI();
+    });
     weaponGrid.appendChild(el);
   });
 }
@@ -1827,16 +1645,20 @@ function closeWeaponPicker() {
 
 function selectWeapon(id) {
   const def = WEAPON_DEFS[id];
-  if (!def) return;
+  if (!def || def.grenade) return;
   selectedWeaponId = id;
   config.weapon = def.category;
   currentWeaponKey = def.category;
   currentWeaponDef = def;
+  state.isHoldingGrenade = false;
 
-  // Меняем модель в руках
   if (weaponModel && camera) {
     camera.remove(weaponModel);
     weaponModel.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+  }
+  if (grenadeModel && camera) {
+    camera.remove(grenadeModel);
+    grenadeModel = null;
   }
   weaponModel = def.model();
   weaponModel.position.set(0.28, -0.26, -0.5);
@@ -1844,19 +1666,48 @@ function selectWeapon(id) {
   state.weaponBasePos = weaponModel.position.clone();
   state.weaponBaseRot = weaponModel.rotation.clone();
 
-  // Обновляем боезапас
   state.ammo = def.ammo;
   state.reserve = def.reserve;
   state.reloading = false;
   document.getElementById('reloadText').style.display = 'none';
   updateHUD();
 
-  // Подсветка в меню
   weaponGrid.querySelectorAll('.wp-item').forEach(el => {
     el.classList.toggle('selected', el.dataset.weaponId === id);
   });
 
   addKillFeed('🔫 ' + def.displayName, '#f5a623');
+}
+
+function selectGrenade(id) {
+  const def = WEAPON_DEFS[id];
+  if (!def || !def.grenade) return;
+  selectedGrenadeId = id;
+  state.isHoldingGrenade = true;
+
+  if (weaponModel) weaponModel.visible = false;
+  if (grenadeModel && camera) {
+    camera.remove(grenadeModel);
+    grenadeModel = null;
+  }
+  grenadeModel = def.model();
+  grenadeModel.scale.set(0.8, 0.8, 0.8);
+  grenadeModel.position.set(0.28, -0.28, -0.5);
+  camera.add(grenadeModel);
+
+  addKillFeed('💣 ' + def.displayName + ' в руке', '#f5a623');
+  updateHUD();
+}
+
+function equipCurrentWeapon() {
+  if (state.isHoldingGrenade) {
+    state.isHoldingGrenade = false;
+    if (grenadeModel && camera) {
+      camera.remove(grenadeModel);
+      grenadeModel = null;
+    }
+    if (weaponModel) weaponModel.visible = true;
+  }
 }
 
 document.getElementById('wpClose').addEventListener('click', closeWeaponPicker);
@@ -1870,10 +1721,197 @@ document.addEventListener('keydown', e => {
   if (e.code === 'Escape' && weaponPickerOpen) {
     closeWeaponPicker();
   }
+  if (e.code === settings.keybinds.grenade && state.running && !weaponPickerOpen) {
+    throwGrenade();
+  }
 });
 
 // ============================================================
-// ============== ПОЛНАЯ МОДЕЛЬ ВРАГА ========================
+// ============== ГРАНАТЫ ====================================
+// ============================================================
+function throwGrenade() {
+  if (state.grenadeCooldown > 0) return;
+  if (!state.isHoldingGrenade) {
+    selectGrenade(selectedGrenadeId);
+    return;
+  }
+  const g = getCurrentGrenadeStats();
+  if (!g || !g.grenade) return;
+
+  state.grenadeCooldown = 1.5;
+  const eyePos = camera.getWorldPosition(new THREE.Vector3());
+  const dir = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation);
+  const startPos = eyePos.clone().add(dir.clone().multiplyScalar(0.5));
+  const mesh = g.model();
+  mesh.position.copy(startPos);
+  mesh.scale.set(0.6, 0.6, 0.6);
+  scene.add(mesh);
+  state.grenades.push({
+    mesh, type: g, vel: dir.clone().multiplyScalar(18).add(new THREE.Vector3(0, 5, 0)),
+    life: g.fuse || 2.5, exploded: false,
+    isEnemy: false
+  });
+
+  if (grenadeModel && camera) {
+    camera.remove(grenadeModel);
+    grenadeModel = null;
+  }
+  state.isHoldingGrenade = false;
+  if (weaponModel) weaponModel.visible = true;
+
+  addKillFeed('💣 Бросок: ' + g.displayName, '#f5a623');
+}
+
+function updateGrenades(dt) {
+  if (state.grenadeCooldown > 0) state.grenadeCooldown -= dt;
+  for (let i = state.grenades.length - 1; i >= 0; i--) {
+    const gr = state.grenades[i];
+    gr.vel.y -= 15 * dt;
+    gr.mesh.position.add(gr.vel.clone().multiplyScalar(dt));
+    gr.mesh.rotation.x += dt * 5;
+    gr.mesh.rotation.z += dt * 3;
+    const p = gr.mesh.position;
+    if (p.y < 0.1) { p.y = 0.1; gr.vel.y *= -0.3; gr.vel.x *= 0.7; gr.vel.z *= 0.7; }
+    const testBox = new THREE.Box3(
+      new THREE.Vector3(p.x - 0.1, p.y - 0.1, p.z - 0.1),
+      new THREE.Vector3(p.x + 0.1, p.y + 0.1, p.z + 0.1)
+    );
+    for (const w of state.walls) {
+      if (w.intersectsBox(testBox)) {
+        gr.vel.multiplyScalar(-0.3);
+        p.add(gr.vel.clone().multiplyScalar(dt * 2));
+        break;
+      }
+    }
+    gr.life -= dt;
+    if (gr.life <= 0 && !gr.exploded) {
+      gr.exploded = true;
+      explodeGrenade(gr);
+    }
+    if (gr.exploded && gr.life < -0.5) {
+      scene.remove(gr.mesh);
+      state.grenades.splice(i, 1);
+    }
+  }
+}
+
+function explodeGrenade(gr) {
+  const g = gr.type;
+  const pos = gr.mesh.position.clone();
+
+  if (g.smoke) {
+    const smokeGroup = new THREE.Group();
+    for (let i = 0; i < 8; i++) {
+      const smokeMat = new THREE.MeshBasicMaterial({ color: 0xdddddd, transparent: true, opacity: 0.65 });
+      const sphere = new THREE.Mesh(new THREE.SphereGeometry(g.radius * (0.6 + Math.random()*0.4), 10, 8), smokeMat);
+      sphere.position.set(
+        (Math.random()-0.5) * g.radius * 0.6,
+        Math.random() * g.radius * 0.5 + 0.5,
+        (Math.random()-0.5) * g.radius * 0.6
+      );
+      smokeGroup.add(sphere);
+    }
+    smokeGroup.position.copy(pos);
+    scene.add(smokeGroup);
+    state.smokeClouds.push({ mesh: smokeGroup, life: g.smokeDuration || 10, radius: g.radius });
+    addKillFeed('💨 Дымовая завеса', '#aaa');
+  } else if (g.fire) {
+    const fireMat = new THREE.MeshBasicMaterial({ color: 0xff6622, transparent: true, opacity: 0.7 });
+    const fire = new THREE.Mesh(new THREE.CylinderGeometry(g.radius, g.radius, 0.8, 14), fireMat);
+    fire.position.copy(pos);
+    fire.position.y = 0.4;
+    scene.add(fire);
+    state.fireAreas.push({ mesh: fire, life: g.fireDuration || 7, radius: g.radius, damage: g.damage });
+    addKillFeed('🔥 Молотов!', '#ff6622');
+  } else if (g.flash) {
+    const flash = new THREE.PointLight(0xffffff, 30, g.radius * 3);
+    flash.position.copy(pos);
+    scene.add(flash);
+    impacts.push({ mesh: flash, life: 0.5, isLight: true });
+
+    const dist = pos.distanceTo(state.playerPos);
+    if (dist < g.radius) {
+      const toFlash = pos.clone().sub(state.playerPos).normalize();
+      const forward = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation);
+      const dot = forward.dot(toFlash);
+      if (dot > 0.3) {
+        state.flashbangEffect = Math.max(state.flashbangEffect, (1 - dist / g.radius) * (g.flashDuration || 3) * dot);
+      }
+    }
+    for (const enemy of state.enemies) {
+      const d = enemy.position.distanceTo(pos);
+      if (d < g.radius) {
+        const toFlash = pos.clone().sub(enemy.position).normalize();
+        const enemyForward = new THREE.Vector3(0, 0, -1).applyQuaternion(enemy.quaternion);
+        const dot = enemyForward.dot(toFlash);
+        if (dot > 0.2) {
+          enemy.userData.blindedTime = (g.flashDuration || 3) * (1 - d / g.radius);
+        }
+      }
+    }
+    addKillFeed('⚡ Вспышка!', '#ffffff');
+  } else {
+    const flash = new THREE.PointLight(0xffaa44, 20, g.radius * 2);
+    flash.position.copy(pos);
+    scene.add(flash);
+    impacts.push({ mesh: flash, life: 0.3, isLight: true });
+
+    for (const enemy of state.enemies) {
+      const d = enemy.position.distanceTo(pos);
+      if (d < g.radius) {
+        const dmg = g.damage * (1 - d / g.radius);
+        enemy.userData.hp -= dmg;
+        if (enemy.userData.hp <= 0) killEnemy(enemy, 'TORSO');
+      }
+    }
+    const dPlayer = state.playerPos.distanceTo(pos);
+    if (dPlayer < g.radius) {
+      damagePlayer(g.damage * (1 - dPlayer / g.radius) * 0.5, 'TORSO', pos);
+    }
+    addKillFeed('💥 Взрыв!', '#ffaa44');
+  }
+}
+
+function updateSmokeAndFire(dt) {
+  for (let i = state.smokeClouds.length - 1; i >= 0; i--) {
+    const s = state.smokeClouds[i];
+    s.life -= dt;
+    s.mesh.traverse(o => {
+      if (o.material) o.material.opacity = Math.min(0.65, s.life * 0.08);
+    });
+    if (s.life <= 0) { scene.remove(s.mesh); state.smokeClouds.splice(i, 1); }
+  }
+  for (let i = state.fireAreas.length - 1; i >= 0; i--) {
+    const f = state.fireAreas[i];
+    f.life -= dt;
+    f.mesh.material.opacity = Math.min(0.7, f.life * 0.2);
+    const dPlayer = state.playerPos.distanceTo(f.mesh.position);
+    if (dPlayer < f.radius) {
+      damagePlayer(f.damage * dt, 'TORSO', f.mesh.position);
+    }
+    for (const enemy of state.enemies) {
+      const d = enemy.position.distanceTo(f.mesh.position);
+      if (d < f.radius) {
+        enemy.userData.hp -= f.damage * dt * 2;
+        if (enemy.userData.hp <= 0) killEnemy(enemy, 'TORSO');
+      }
+    }
+    if (f.life <= 0) { scene.remove(f.mesh); state.fireAreas.splice(i, 1); }
+  }
+
+  const flashOverlay = document.getElementById('flashOverlay');
+  if (state.flashbangEffect > 0) {
+    state.flashbangEffect -= dt;
+    const alpha = Math.min(1, state.flashbangEffect / 3);
+    flashOverlay.style.opacity = alpha;
+    flashOverlay.style.background = `rgba(255,255,255,${alpha})`;
+  } else {
+    flashOverlay.style.opacity = 0;
+  }
+}
+
+// ============================================================
+// ============== МОДЕЛЬ ВРАГА ===============================
 // ============================================================
 function makeEnemyMaterials() {
   return {
@@ -1907,49 +1945,32 @@ function cylE(rt, rb, h, seg, mat, x=0, y=0, z=0, rx=0, ry=0, rz=0) {
   return m;
 }
 
-function createEnemy() {
+function createEnemy(team = 'T') {
   const g = new THREE.Group();
   const M = makeEnemyMaterials();
+  const uniformMat = team === 'CT' ? new THREE.MeshStandardMaterial({ color: 0x2a3a5a, roughness: 0.85 }) : M.uniform;
+  const vestMat = team === 'CT' ? new THREE.MeshStandardMaterial({ color: 0x1a2a4a, roughness: 0.7, metalness: 0.15 }) : M.vest;
   
-  const thighL = boxE(0.22, 0.5, 0.24, M.uniform, -0.13, 0.7, 0);
-  const thighR = boxE(0.22, 0.5, 0.24, M.uniform,  0.13, 0.7, 0);
+  const thighL = boxE(0.22, 0.5, 0.24, uniformMat, -0.13, 0.7, 0);
+  const thighR = boxE(0.22, 0.5, 0.24, uniformMat,  0.13, 0.7, 0);
   g.add(thighL); g.add(thighR);
   g.add(boxE(0.23, 0.48, 0.005, M.uniform2, -0.13, 0.7, -0.12));
   g.add(boxE(0.23, 0.48, 0.005, M.uniform2,  0.13, 0.7, -0.12));
-  g.add(boxE(0.24, 0.12, 0.26, M.vest, -0.13, 0.42, 0));
-  g.add(boxE(0.24, 0.12, 0.26, M.vest,  0.13, 0.42, 0));
-  const shinL = boxE(0.20, 0.42, 0.22, M.uniform, -0.13, 0.22, 0);
-  const shinR = boxE(0.20, 0.42, 0.22, M.uniform,  0.13, 0.22, 0);
+  const shinL = boxE(0.20, 0.42, 0.22, uniformMat, -0.13, 0.22, 0);
+  const shinR = boxE(0.20, 0.42, 0.22, uniformMat,  0.13, 0.22, 0);
   g.add(shinL); g.add(shinR);
   g.add(boxE(0.24, 0.14, 0.34, M.boot, -0.13, 0.07, -0.04));
   g.add(boxE(0.24, 0.14, 0.34, M.boot,  0.13, 0.07, -0.04));
-  g.add(boxE(0.26, 0.03, 0.36, M.bootSole, -0.13, 0.015, -0.04));
-  g.add(boxE(0.26, 0.03, 0.36, M.bootSole,  0.13, 0.015, -0.04));
-  for (let i = 0; i < 3; i++) {
-    g.add(boxE(0.05, 0.005, 0.20, M.strap, -0.13, 0.05 + i*0.03, -0.10));
-    g.add(boxE(0.05, 0.005, 0.20, M.strap,  0.13, 0.05 + i*0.03, -0.10));
-  }
   
-  g.add(boxE(0.62, 0.72, 0.32, M.uniform, 0, 1.28, 0));
-  g.add(boxE(0.005, 0.7, 0.33, M.uniform2, -0.20, 1.28, 0));
-  g.add(boxE(0.005, 0.7, 0.33, M.uniform2, 0.20, 1.28, 0));
-  g.add(boxE(0.66, 0.62, 0.14, M.vest, 0, 1.30, -0.16));
-  g.add(boxE(0.66, 0.62, 0.10, M.vest, 0, 1.30, 0.16));
-  g.add(boxE(0.08, 0.62, 0.44, M.vest, -0.31, 1.30, 0));
-  g.add(boxE(0.08, 0.62, 0.44, M.vest,  0.31, 1.30, 0));
+  g.add(boxE(0.62, 0.72, 0.32, uniformMat, 0, 1.28, 0));
+  g.add(boxE(0.66, 0.62, 0.14, vestMat, 0, 1.30, -0.16));
+  g.add(boxE(0.66, 0.62, 0.10, vestMat, 0, 1.30, 0.16));
+  g.add(boxE(0.08, 0.62, 0.44, vestMat, -0.31, 1.30, 0));
+  g.add(boxE(0.08, 0.62, 0.44, vestMat,  0.31, 1.30, 0));
   g.add(boxE(0.42, 0.42, 0.06, M.vestDark, 0, 1.38, -0.235));
-  for (let i = 0; i < 4; i++) {
-    g.add(boxE(0.14, 0.16, 0.08, M.vestDark, -0.22 + i*0.16, 1.20, -0.24));
-    g.add(boxE(0.14, 0.02, 0.09, M.strap, -0.22 + i*0.16, 1.23, -0.245));
-    g.add(boxE(0.04, 0.04, 0.01, M.metal, -0.22 + i*0.16, 1.18, -0.28));
-  }
   g.add(boxE(0.66, 0.10, 0.34, M.strap, 0, 0.96, 0));
-  g.add(boxE(0.10, 0.08, 0.02, M.metal, 0, 0.96, -0.18));
   g.add(boxE(0.10, 0.06, 0.01, M.patch, -0.32, 1.42, -0.19));
   g.add(boxE(0.08, 0.05, 0.01, M.patch2, 0.32, 1.42, -0.19));
-  g.add(boxE(0.42, 0.42, 0.14, M.vest, 0, 1.30, 0.24));
-  g.add(boxE(0.42, 0.02, 0.14, M.strap, 0, 1.42, 0.24));
-  g.add(boxE(0.42, 0.02, 0.14, M.strap, 0, 1.18, 0.24));
   
   g.add(boxE(0.16, 0.10, 0.16, M.skin, 0, 1.68, 0));
   g.add(boxE(0.30, 0.32, 0.32, M.skin, 0, 1.87, 0));
@@ -1962,30 +1983,17 @@ function createEnemy() {
   helmet.castShadow = true;
   g.add(helmet);
   g.add(cylE(0.19, 0.19, 0.02, 20, M.helmet2, 0, 1.80, 0));
-  g.add(boxE(0.34, 0.03, 0.14, M.helmet, 0, 1.88, -0.14, -0.15, 0, 0));
-  g.add(boxE(0.02, 0.02, 0.18, M.metal, -0.19, 1.90, -0.02));
-  g.add(boxE(0.02, 0.02, 0.18, M.metal,  0.19, 1.90, -0.02));
-  g.add(boxE(0.10, 0.05, 0.05, M.vestDark, 0, 1.93, -0.19));
-  g.add(cylE(0.06, 0.06, 0.05, 12, M.vestDark, -0.19, 1.86, 0.02, 0, 0, Math.PI/2));
-  g.add(cylE(0.06, 0.06, 0.05, 12, M.vestDark,  0.19, 1.86, 0.02, 0, 0, Math.PI/2));
-  g.add(cylE(0.008, 0.008, 0.14, 6, M.metal, -0.22, 1.82, -0.10, 0, 0, Math.PI/2));
   g.add(boxE(0.30, 0.08, 0.06, M.goggle, 0, 1.88, -0.16));
   g.add(boxE(0.28, 0.05, 0.02, M.lensDark, 0, 1.88, -0.19));
-  g.add(boxE(0.02, 0.06, 0.30, M.strap, -0.16, 1.88, 0.02));
-  g.add(boxE(0.02, 0.06, 0.30, M.strap,  0.16, 1.88, 0.02));
   
-  g.add(boxE(0.20, 0.14, 0.28, M.uniform, -0.41, 1.56, 0));
-  g.add(boxE(0.20, 0.14, 0.28, M.uniform,  0.41, 1.56, 0));
-  g.add(boxE(0.22, 0.06, 0.28, M.vest, -0.41, 1.62, 0));
-  g.add(boxE(0.22, 0.06, 0.28, M.vest,  0.41, 1.62, 0));
+  g.add(boxE(0.20, 0.14, 0.28, uniformMat, -0.41, 1.56, 0));
+  g.add(boxE(0.20, 0.14, 0.28, uniformMat,  0.41, 1.56, 0));
   
-  const upperArmL = boxE(0.18, 0.36, 0.20, M.uniform, -0.46, 1.34, 0);
-  const upperArmR = boxE(0.18, 0.36, 0.20, M.uniform,  0.46, 1.34, 0);
+  const upperArmL = boxE(0.18, 0.36, 0.20, uniformMat, -0.46, 1.34, 0);
+  const upperArmR = boxE(0.18, 0.36, 0.20, uniformMat,  0.46, 1.34, 0);
   g.add(upperArmL); g.add(upperArmR);
-  g.add(boxE(0.18, 0.06, 0.20, M.vestDark, -0.46, 1.14, 0));
-  g.add(boxE(0.18, 0.06, 0.20, M.vestDark,  0.46, 1.14, 0));
-  const forearmL = boxE(0.16, 0.32, 0.18, M.uniform, -0.46, 1.02, -0.10, 0.7, 0, 0);
-  const forearmR = boxE(0.16, 0.32, 0.18, M.uniform,  0.46, 1.02, -0.10, 0.7, 0, 0);
+  const forearmL = boxE(0.16, 0.32, 0.18, uniformMat, -0.46, 1.02, -0.10, 0.7, 0, 0);
+  const forearmR = boxE(0.16, 0.32, 0.18, uniformMat,  0.46, 1.02, -0.10, 0.7, 0, 0);
   g.add(forearmL); g.add(forearmR);
   g.add(boxE(0.15, 0.14, 0.16, M.glove, -0.42, 1.20, -0.24));
   g.add(boxE(0.15, 0.14, 0.16, M.glove,  0.38, 1.20, -0.28));
@@ -2013,6 +2021,8 @@ function createEnemy() {
     canSeePlayer: false, lastSeenPlayerTime: 0,
     lastSeenPlayerPos: new THREE.Vector3(),
     state: 'patrol', stateTimer: 0, patrolDir: null,
+    team: team,
+    blindedTime: 0,
     hitboxes: [
       { part: 'HEAD',  center: new THREE.Vector3(0, 1.87, 0), size: new THREE.Vector3(0.32, 0.36, 0.34) },
       { part: 'TORSO', center: new THREE.Vector3(0, 1.30, 0), size: new THREE.Vector3(0.66, 0.60, 0.40) },
@@ -2194,16 +2204,7 @@ function handleNetMessage(msg) {
 
 function addRemotePlayer(p) {
   if (net.players.has(p.id)) return;
-  const group = createEnemy();
-  const teamColor = p.team === 'CT' ? 0x2a4a7a : 0x7a4a2a;
-  group.traverse(obj => {
-    if (obj.isMesh && obj.material && obj.material.color) {
-      if (obj.material.color.getHex() === 0x3a4a3a) {
-        obj.material = obj.material.clone();
-        obj.material.color.setHex(teamColor);
-      }
-    }
-  });
+  const group = createEnemy(p.team || 'T');
   group.position.set(p.pos.x, (p.pos.y || 1.7) - 1.7, p.pos.z);
   scene.add(group);
   net.players.set(p.id, {
@@ -2239,7 +2240,9 @@ function sendState() {
     rot: { yaw, pitch },
     weapon: config.weapon,
     hp: state.hp,
-    alive: state.hp > 0
+    alive: state.hp > 0,
+    team: state.team,
+    round: state.round
   }));
 }
 
@@ -2277,9 +2280,10 @@ function updateNetInfo() {
   el.textContent = `PING: ${net.ping.toFixed(0)}ms | ИГРОКОВ: ${net.players.size + 1}`;
   const pl = document.getElementById('playerList');
   pl.style.display = 'block';
-  let html = `<div class="pl-item you">▸ ${net.myName} (вы) — K:${state.kills} D:${state.deaths}</div>`;
+  let html = `<div class="pl-item you">▸ ${net.myName} (вы) [${state.team}] — K:${state.kills} D:${state.deaths}</div>`;
   for (const [id, p] of net.players) {
-    html += `<div class="pl-item">▸ ${p.name} [${p.team}] — K:${p.kills} D:${p.deaths}</div>`;
+    const teamTag = p.team === state.team ? '🟢' : '🔴';
+    html += `<div class="pl-item">${teamTag} ${p.name} [${p.team}] — K:${p.kills} D:${p.deaths}</div>`;
   }
   pl.innerHTML = html;
 }
@@ -2295,6 +2299,107 @@ function respawnMultiplayer() {
     net.ws.send(JSON.stringify({ type: 'respawn', pos: { x: free.x, y: 1.7, z: free.z } }));
   }
   addKillFeed('🔄 Респавн', '#3aff6a');
+}
+
+// ============================================================
+// ============== РАУНДЫ (только для competitive/allies) =====
+// ============================================================
+function isRoundMode() {
+  return config.mode === 'competitive' || config.mode === 'allies';
+}
+
+function startRound(roundNum) {
+  if (!isRoundMode()) return;
+  state.round = roundNum;
+  state.roundActive = false;
+  state.roundFreeze = true;
+  state.roundTimer = 20;
+  state.hp = 100;
+  state.ammo = getCurrentWeaponStats().ammo;
+  state.reserve = getCurrentWeaponStats().reserve;
+  state.reloading = false;
+  state.ads = false;
+  state.grenades = [];
+  state.smokeClouds.forEach(s => scene.remove(s.mesh));
+  state.smokeClouds = [];
+  state.fireAreas.forEach(f => scene.remove(f.mesh));
+  state.fireAreas = [];
+  
+  const free = findFreeSpot(0, 0, 40);
+  state.playerPos.set(free.x, 1.7, free.z);
+  state.playerVelocity.set(0, 0, 0);
+  
+  if (!net.connected) {
+    for (const e of state.enemies) scene.remove(e);
+    state.enemies = [];
+    const enemyCount = config.mode === 'competitive' ? 5 : 2;
+    for (let i = 0; i < enemyCount; i++) spawnEnemy();
+  }
+  
+  updateHUD();
+  updateRoundUI();
+  showRoundTimer();
+  addKillFeed(`🔔 РАУНД ${roundNum} / ${state.maxRounds}`, '#f5a623');
+}
+
+function beginRound() {
+  state.roundActive = true;
+  state.roundFreeze = false;
+  hideRoundTimer();
+  addKillFeed('🔫 В БОЙ!', '#3aff6a');
+}
+
+function endRound(winnerTeam) {
+  state.roundActive = false;
+  if (winnerTeam === 'CT') state.scoreCT++;
+  else state.scoreT++;
+  updateRoundUI();
+  addKillFeed(`🏆 Раунд ${state.round} — победа ${winnerTeam}`, '#f5a623');
+  if (state.round >= state.maxRounds) {
+    gameOver();
+  } else {
+    setTimeout(() => startRound(state.round + 1), 3000);
+  }
+}
+
+function updateRoundUI() {
+  const el = document.getElementById('roundInfo');
+  el.style.display = 'block';
+  el.textContent = `РАУНД ${state.round} / ${state.maxRounds}`;
+  const ts = document.getElementById('teamScores');
+  ts.style.display = 'flex';
+  document.getElementById('scoreCT').textContent = 'CT ' + state.scoreCT;
+  document.getElementById('scoreT').textContent = 'T ' + state.scoreT;
+}
+
+function showRoundTimer() {
+  if (!isRoundMode()) return;
+  const el = document.getElementById('roundTimer');
+  el.classList.add('show');
+  el.textContent = Math.ceil(state.roundTimer);
+}
+
+function hideRoundTimer() {
+  document.getElementById('roundTimer').classList.remove('show');
+}
+
+function updateRoundTimer(dt) {
+  if (!isRoundMode()) return;
+  if (state.roundActive) return;
+  if (state.roundTimer <= 0) return;
+  state.roundTimer -= dt;
+  if (state.roundTimer <= 0) {
+    state.roundTimer = 0;
+    beginRound();
+  } else {
+    document.getElementById('roundTimer').textContent = Math.ceil(state.roundTimer);
+  }
+}
+
+function hideRoundUI() {
+  document.getElementById('roundInfo').style.display = 'none';
+  document.getElementById('teamScores').style.display = 'none';
+  hideRoundTimer();
 }
 
 // ============================================================
@@ -2335,11 +2440,49 @@ function initGame() {
   camera.fov = settings.fov;
   camera.updateProjectionMatrix();
   state.isPumping = false;
+  state.flashbangEffect = 0;
+  state.isHoldingGrenade = false;
   
   state.recoilPitch = 0;
   state.recoilYaw = 0;
   state.recoilOffset.set(0, 0, 0);
   state.recoilRot.set(0, 0, 0);
+  
+  state.scoreCT = 0;
+  state.scoreT = 0;
+  state.team = 'CT';
+  
+  // Настройка режима
+  if (isRoundMode()) {
+    if (config.mode === 'competitive') {
+      state.maxRounds = 8;
+      state.teamSize = 5;
+    } else {
+      state.maxRounds = 5;
+      state.teamSize = 2;
+    }
+    // Раундовый режим — с таймером и заморозкой
+    state.round = 1;
+    state.roundActive = false;
+    state.roundFreeze = true;
+    state.roundTimer = 20;
+    startRound(1);
+  } else {
+    // Deathmatch / Waves / Survival — без таймера и заморозки
+    state.maxRounds = 1;
+    state.teamSize = 1;
+    state.round = 1;
+    state.roundActive = true;
+    state.roundFreeze = false;
+    state.roundTimer = 0;
+    hideRoundUI();
+    // Сразу спавним врагов
+    if (!net.connected) {
+      for (const e of state.enemies) scene.remove(e);
+      state.enemies = [];
+      for (let i = 0; i < 3; i++) spawnEnemy();
+    }
+  }
   
   weaponModel = def.model();
   weaponModel.position.set(0.28, -0.26, -0.5);
@@ -2363,15 +2506,8 @@ function initGame() {
   
   updateCrosshairStyle();
   
-  if (!net.connected) {
-    if (config.mode === 'waves') {
-      state.spawnInterval = 4000; state.maxEnemies = Math.min(5, settings.maxEnemies);
-    } else if (config.mode === 'survival') {
-      state.spawnInterval = 2000; state.maxEnemies = settings.maxEnemies;
-    } else {
-      state.spawnInterval = 2500; state.maxEnemies = settings.maxEnemies;
-    }
-    spawnEnemy(); spawnEnemy(); spawnEnemy();
+  if (net.connected) {
+    updateRoundUI();
   }
   
   updateHUD();
@@ -2385,12 +2521,19 @@ function cleanupGame() {
   state.bullets = [];
   for (const imp of impacts) scene.remove(imp.mesh);
   impacts.length = 0;
+  for (const g of state.grenades) scene.remove(g.mesh);
+  state.grenades = [];
+  for (const s of state.smokeClouds) scene.remove(s.mesh);
+  state.smokeClouds = [];
+  for (const f of state.fireAreas) scene.remove(f.mesh);
+  state.fireAreas = [];
   if (mapGroup) {
     scene.remove(mapGroup);
     mapGroup.traverse(obj => { if (obj.geometry) obj.geometry.dispose(); });
     mapGroup = null;
   }
   if (weaponModel) { camera.remove(weaponModel); weaponModel = null; }
+  if (grenadeModel) { camera.remove(grenadeModel); grenadeModel = null; }
   if (playerModel) { scene.remove(playerModel); playerModel = null; }
   state.walls = [];
   state.weaponBasePos = null;
@@ -2414,9 +2557,9 @@ function findFreeSpot(cx, cz, maxR = 30) {
   return { x: 0, z: 0 };
 }
 
-function spawnEnemy() {
+function spawnEnemy(team = 'T') {
   if (state.enemies.length >= state.maxEnemies) return;
-  const enemy = createEnemy();
+  const enemy = createEnemy(team);
   const spot = findFreeSpotFarAway(state.playerPos.x, state.playerPos.z, 20);
   enemy.position.set(spot.x, 0, spot.z);
   scene.add(enemy);
@@ -2495,7 +2638,10 @@ function getHitZone(enemy, worldPoint) {
 const raycaster = new THREE.Raycaster();
 
 function shoot() {
+  if (state.roundFreeze) return;
+  if (state.isHoldingGrenade) return;
   const w = getCurrentWeaponStats();
+  if (w.grenade) return;
   const now = performance.now();
   if (w.pellets && state.isPumping) return;
   if (now - state.lastShot < w.fireRate) return;
@@ -2569,6 +2715,7 @@ function shoot() {
     let closestRemote = null, closestRemoteDist = Infinity, closestRemotePoint = null;
     for (const [id, rp] of net.players) {
       if (!rp.alive || !rp.group) continue;
+      if (rp.team === state.team) continue;
       const intersects = raycaster.intersectObjects(rp.group.children, true);
       if (intersects.length > 0 && intersects[0].distance < closestRemoteDist) {
         closestRemoteDist = intersects[0].distance;
@@ -2611,12 +2758,14 @@ function shoot() {
 
   if (w.auto && mouse.down) {
     const delay = w.pumpTime ? w.pumpTime : w.fireRate;
-    setTimeout(() => { if (mouse.down && state.running && !weaponPickerOpen) shoot(); }, delay);
+    setTimeout(() => { if (mouse.down && state.running && !weaponPickerOpen && !state.isHoldingGrenade && !state.roundFreeze) shoot(); }, delay);
   }
 }
 
 function reload() {
+  if (state.roundFreeze) return;
   const w = getCurrentWeaponStats();
+  if (w.grenade) return;
   if (state.reloading || state.reserve <= 0 || state.ammo >= w.ammo) return;
   state.reloading = true;
   document.getElementById('reloadText').style.display = 'block';
@@ -2647,6 +2796,10 @@ function killEnemy(enemy, zone = 'TORSO') {
   if (idx >= 0) state.enemies.splice(idx, 1);
   updateHUD();
   if (config.mode === 'survival') state.spawnInterval = Math.max(800, state.spawnInterval - 100);
+  // Проверка конца раунда только в раундовых режимах
+  if (!net.connected && isRoundMode() && state.roundActive && state.enemies.length === 0) {
+    endRound('CT');
+  }
 }
 
 const impacts = state.impacts;
@@ -2764,8 +2917,17 @@ function updatePlayer(dt) {
   if (dt <= 0) dt = 0.016;
   const w = getCurrentWeaponStats();
   
+  // Всегда обновляем поворот камеры
   yaw += (targetYaw - yaw) * Math.min(1, dt * 25);
   pitch += (targetPitch - pitch) * Math.min(1, dt * 25);
+  
+  if (state.roundFreeze) {
+    camera.position.copy(state.playerPos);
+    camera.rotation.order = 'YXZ';
+    camera.rotation.y = yaw;
+    camera.rotation.x = pitch;
+    return;
+  }
   
   if (state.recoilPitch > 0) {
     targetPitch += state.recoilPitch;
@@ -2784,7 +2946,7 @@ function updatePlayer(dt) {
   state.recoilRot.y *= Math.max(0, 1 - dt * 6);
   state.recoilRot.z *= Math.max(0, 1 - dt * 6);
   
-  state.ads = mouse.right && !state.reloading;
+  state.ads = mouse.right && !state.reloading && !state.isHoldingGrenade;
   state.adsProgress += ((state.ads ? 1 : 0) - state.adsProgress) * Math.min(1, dt * 12);
   
   state.targetFov = state.ads ? w.adsFOV : settings.fov;
@@ -2800,9 +2962,9 @@ function updatePlayer(dt) {
   state.crouching = state.crouchAmount > 0.5;
   const currentHeight = PLAYER_HEIGHT - (PLAYER_HEIGHT - CROUCH_HEIGHT) * state.crouchAmount;
   
-  if (weaponModel && state.weaponBasePos) {
+  if (weaponModel && state.weaponBasePos && !state.isHoldingGrenade) {
     const basePos = state.weaponBasePos;
-    const adsPos = w.adsPos;
+    const adsPos = w.adsPos || basePos;
     weaponModel.position.x = THREE.MathUtils.lerp(basePos.x, adsPos.x, state.adsProgress) + state.recoilOffset.x;
     weaponModel.position.y = THREE.MathUtils.lerp(basePos.y, adsPos.y, state.adsProgress) + state.recoilOffset.y;
     weaponModel.position.z = THREE.MathUtils.lerp(basePos.z, adsPos.z, state.adsProgress) + state.recoilOffset.z;
@@ -2813,7 +2975,7 @@ function updatePlayer(dt) {
   
   const ch = document.getElementById('crosshair');
   const scope = document.getElementById('scopeOverlay');
-  if (w.scope) {
+  if (w.scope && !state.isHoldingGrenade) {
     if (state.adsProgress > 0.7) { ch.style.opacity = 0; scope.style.display = 'block'; }
     else { ch.style.opacity = 1; scope.style.display = 'none'; }
   } else {
@@ -2913,6 +3075,12 @@ function updateEnemies(dt) {
   
   for (const enemy of state.enemies) {
     const p = enemy.userData.profile;
+    
+    if (enemy.userData.blindedTime > 0) {
+      enemy.userData.blindedTime -= dt;
+      continue;
+    }
+    
     const toPlayer = new THREE.Vector3().subVectors(state.playerPos, enemy.position);
     toPlayer.y = 0;
     const dist = toPlayer.length();
@@ -3001,6 +3169,7 @@ function updateEnemies(dt) {
 }
 
 function damagePlayer(dmg, zone, enemyPos) {
+  if (state.roundFreeze) return;
   state.hp -= dmg;
   updateHUD();
   const v = document.getElementById('damageVignette');
@@ -3035,7 +3204,15 @@ function showHitDirection(enemyPos, zone) {
 function updateHUD() {
   document.getElementById('hpFill').style.width = Math.max(0, state.hp) + '%';
   document.getElementById('hpText').textContent = Math.max(0, Math.round(state.hp));
-  document.getElementById('ammo').innerHTML = `${state.ammo}<span class="reserve"> / ${state.reserve}</span>`;
+  const w = getCurrentWeaponStats();
+  if (state.isHoldingGrenade) {
+    const g = getCurrentGrenadeStats();
+    document.getElementById('ammo').innerHTML = `💣<span class="reserve"> x${g.ammo}</span>`;
+  } else if (w.grenade) {
+    document.getElementById('ammo').innerHTML = `💣<span class="reserve"> x${w.ammo}</span>`;
+  } else {
+    document.getElementById('ammo').innerHTML = `${state.ammo}<span class="reserve"> / ${state.reserve}</span>`;
+  }
   document.getElementById('score').textContent = 'Убито: ' + state.kills + (state.headshots > 0 ? ' | HS: ' + state.headshots : '');
 }
 
@@ -3044,7 +3221,7 @@ function gameOver() {
   document.exitPointerLock();
   document.getElementById('hud').style.display = 'none';
   document.getElementById('gameOver').style.display = 'flex';
-  document.getElementById('finalScore').textContent = 'Убийств: ' + state.kills + ' | Хедшотов: ' + state.headshots;
+  document.getElementById('finalScore').textContent = 'Убийств: ' + state.kills + ' | Хедшотов: ' + state.headshots + ' | Раундов: ' + state.round;
 }
 
 function restartGame() {
@@ -3093,7 +3270,7 @@ function drawMinimap() {
   for (const [id, p] of net.players) {
     if (!p.group) continue;
     const [x, y] = toPx(p.group.position.x, p.group.position.z);
-    ctx.fillStyle = p.team === 'CT' ? '#4488ff' : '#ffaa44';
+    ctx.fillStyle = p.team === state.team ? '#4488ff' : '#ff4444';
     ctx.beginPath();
     ctx.arc(x, y, 3, 0, Math.PI*2);
     ctx.fill();
@@ -3123,12 +3300,15 @@ function animate() {
   lastTime = now;
   
   if (state.running && !weaponPickerOpen) {
+    updateRoundTimer(dt);
     updatePlayer(dt);
     if (!net.connected) updateEnemies(dt);
     else updateRemotePlayers(dt);
     updateBullets(dt);
-    if (mouse.down) shoot();
-    if (!net.connected && now - state.lastEnemySpawn > state.spawnInterval) {
+    updateGrenades(dt);
+    updateSmokeAndFire(dt);
+    if (mouse.down && !state.isHoldingGrenade) shoot();
+    if (!net.connected && now - state.lastEnemySpawn > state.spawnInterval && state.roundActive) {
       state.lastEnemySpawn = now;
       spawnEnemy();
       if (config.mode === 'survival') state.wave++;
@@ -3222,7 +3402,7 @@ function joinRoom() {
     type: 'join_room',
     roomId: net.roomId,
     name: net.myName,
-    team: 'CT',
+    team: state.team,
     weapon: config.weapon,
     map: config.map, mode: config.mode
   }));
@@ -3245,6 +3425,19 @@ document.getElementById('restartBtn').addEventListener('click', () => {
 document.addEventListener('keydown', e => {
   if (e.code === settings.keybinds.reload && state.running && !weaponPickerOpen) reload();
   if (e.code === 'Space') e.preventDefault();
+  if (e.code === 'Digit1') selectWeapon('rifle_v1');
+  if (e.code === 'Digit2') selectWeapon('pistol_v1');
+  if (e.code === 'Digit3') selectWeapon('shotgun_v1');
+  if (e.code === 'Digit4') selectWeapon('sniper_v1');
+  if (e.code === 'Digit5') selectWeapon('smg_mp5');
+  if (e.code === 'Digit6') selectWeapon('lmg_m249');
+  if (e.code === 'KeyQ') {
+    if (state.isHoldingGrenade) {
+      equipCurrentWeapon();
+    } else {
+      selectGrenade(selectedGrenadeId);
+    }
+  }
 });
 
 addEventListener('resize', () => {
