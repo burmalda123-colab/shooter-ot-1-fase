@@ -662,6 +662,20 @@
         </div>
         
         <div class="setting-group">
+          <div class="setting-group-title">Оружие</div>
+          
+          <div class="setting-row">
+            <div class="setting-label">Разброс пуль
+              <span class="hint">Множитель случайного отклонения (100% = стандарт)</span>
+            </div>
+            <div class="setting-control">
+              <input type="range" min="0" max="200" value="100" data-setting="weaponSpread">
+              <span class="slider-value" id="weaponSpreadValue">100</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="setting-group">
           <div class="setting-group-title">Помощь</div>
           
           <div class="setting-row">
@@ -865,6 +879,7 @@ const DEFAULT_SETTINGS = {
   keybinds: { forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', jump: 'Space', sprint: 'ShiftLeft', reload: 'KeyR', crouch: 'ControlLeft' },
   difficulty: 'normal',
   maxEnemies: 8,
+  weaponSpread: 100,
   autoReload: false,
   damageNumbers: true,
   hitmarker: true,
@@ -912,7 +927,6 @@ function applySettings() {
       sun.shadow.mapSize.height = mapSize;
       if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
     }
-    // Tone mapping
     renderer.toneMapping = settings.toneMapping ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
     renderer.toneMappingExposure = settings.toneMapping ? 1.1 : 1.0;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -1175,7 +1189,28 @@ document.addEventListener('keydown', e => {
 const WEAPONS = {
   pistol:  { damage: 25, fireRate: 300, ammo: 12, reserve: 60, spread: 0.01, auto: false, reload: 1500, bulletSpeed: 100, adsSpreadMult: 0.15, adsFOV: 55, adsPos: { x: 0, y: -0.18, z: -0.35 }, recoil: 0.012, recoilKick: 0.04 },
   rifle:   { damage: 30, fireRate: 100, ammo: 30, reserve: 90, spread: 0.02, auto: true,  reload: 2200, bulletSpeed: 120, adsSpreadMult: 0.15, adsFOV: 50, adsPos: { x: 0, y: -0.16, z: -0.32 }, recoil: 0.015, recoilKick: 0.06 },
-  shotgun: { damage: 15, fireRate: 800, ammo: 6,  reserve: 24, spread: 0.15, auto: false, reload: 2500, pellets: 8, bulletSpeed: 80, adsSpreadMult: 0.5, adsFOV: 60, adsPos: { x: 0, y: -0.18, z: -0.4 }, recoil: 0.035, recoilKick: 0.12 },
+  shotgun: {
+    damage: 15,
+    fireRate: 800,
+    ammo: 6,
+    reserve: 24,
+    spread: 0.15,
+    auto: false,
+    reload: 2500,
+    pellets: 8,
+    pelletSpread: 0.22,
+    falloffStart: 6,
+    falloffEnd: 18,
+    knockback: 0.35,
+    pumpTime: 550,
+    pumpAnim: 0.12,
+    bulletSpeed: 80,
+    adsSpreadMult: 0.5,
+    adsFOV: 60,
+    adsPos: { x: 0, y: -0.18, z: -0.4 },
+    recoil: 0.035,
+    recoilKick: 0.12
+  },
   sniper:  { damage: 120,fireRate: 1400,ammo: 5,  reserve: 20, spread: 0.001,auto: false, reload: 3000, bulletSpeed: 200, adsSpreadMult: 0.05, adsFOV: 20, adsPos: { x: 0, y: -0.16, z: -0.2 }, scope: true, recoil: 0.05, recoilKick: 0.2 }
 };
 
@@ -1299,7 +1334,6 @@ const state = {
   weaponBasePos: null,
   weaponBaseRot: null,
   hitFlash: 0,
-  // физика
   recoilPitch: 0,
   recoilYaw: 0,
   bobPhase: 0,
@@ -1308,7 +1342,13 @@ const state = {
   weaponRecoil: 0,
   lastFootstep: 0,
   playerYawVel: 0,
-  playerPitchVel: 0
+  playerPitchVel: 0,
+  lastShotgunPump: 0,
+  isPumping: false,
+  // ==== ПАМЯТЬ ИГРОКА (для ИИ) ====
+  playerNoise: 0,
+  playerLastSeen: 0,
+  playerLastPos: new THREE.Vector3()
 };
 
 let weaponModel = null, mapGroup = null, playerModel = null;
@@ -1394,7 +1434,6 @@ function createMap(type) {
     m.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(m);
     state.walls.push(box);
-    // Металлические полосы на ящике
     const stripGeo = new THREE.BoxGeometry(s + 0.02, 0.08, 0.08);
     for (let i = 0; i < 3; i++) {
       const strip = new THREE.Mesh(stripGeo, metalMat);
@@ -1470,43 +1509,66 @@ function cyl(rt, rb, h, seg, mat, x=0, y=0, z=0, rx=0, ry=0, rz=0) {
   return m;
 }
 
+// ============================================================
+// ============== БОЛЕЕ ДЕТАЛЬНЫЙ ПИСТОЛЕТ ===================
+// ============================================================
 function buildPistol() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
-  // Слайд
-  g.add(box(0.055, 0.06, 0.24, M.gunmetal, 0, 0.02, -0.02));
-  // Верхние насечки слайда
-  for (let i = 0; i < 8; i++) g.add(box(0.058, 0.006, 0.004, M.gunmetal2, 0, 0.05, -0.14 + i*0.012));
-  // Задние насечки
-  for (let i = 0; i < 6; i++) g.add(box(0.058, 0.006, 0.004, M.gunmetal2, 0, 0.05, 0.06 + i*0.012));
-  // Прицельные
-  g.add(box(0.006, 0.01, 0.008, M.polymer, 0, 0.055, -0.10));
-  g.add(box(0.02, 0.012, 0.008, M.polymer, 0, 0.055, 0.08));
-  // Ствол
-  g.add(cyl(0.012, 0.012, 0.05, 12, M.chrome, 0, 0.02, -0.15, Math.PI/2, 0, 0));
-  // Рамка
-  g.add(box(0.05, 0.05, 0.20, M.polymer, 0, -0.02, -0.02));
-  // Планка Пикатинни
-  for (let i = 0; i < 6; i++) g.add(box(0.052, 0.004, 0.008, M.gunmetal, 0, -0.048, -0.10 + i*0.02));
-  // Спусковая скоба
-  g.add(box(0.045, 0.008, 0.06, M.polymer, 0, -0.045, -0.02));
-  g.add(box(0.008, 0.035, 0.008, M.polymer, -0.02, -0.028, 0.01));
-  // Спусковой крючок
-  g.add(box(0.008, 0.02, 0.005, M.chrome, 0, -0.032, 0.0));
-  // Рукоять
-  const grip = box(0.05, 0.14, 0.06, M.rubber, 0, -0.11, 0.08);
-  grip.rotation.x = 0.15;
+  g.add(box(0.058, 0.062, 0.26, M.gunmetal, 0, 0.025, -0.02));
+  g.add(box(0.052, 0.008, 0.26, M.gunmetal2, 0, 0.06, -0.02));
+  g.add(box(0.004, 0.05, 0.26, M.gunmetal2, 0.029, 0.03, -0.02, 0, 0, 0.15));
+  g.add(box(0.004, 0.05, 0.26, M.gunmetal2, -0.029, 0.03, -0.02, 0, 0, -0.15));
+  for (let i = 0; i < 9; i++) g.add(box(0.064, 0.007, 0.005, M.gunmetal2, 0, 0.05, 0.075 + i * 0.014));
+  for (let i = 0; i < 6; i++) g.add(box(0.064, 0.007, 0.004, M.gunmetal2, 0, 0.05, -0.12 - i * 0.011));
+  g.add(box(0.005, 0.01, 0.05, M.polymer, 0.032, 0.04, 0.01));
+  g.add(box(0.022, 0.016, 0.008, M.polymer2, 0, 0.07, 0.095));
+  g.add(box(0.006, 0.012, 0.012, M.polymer, 0.011, 0.072, 0.095));
+  g.add(box(0.006, 0.012, 0.012, M.polymer, -0.011, 0.072, 0.095));
+  g.add(box(0.006, 0.014, 0.01, M.polymer, 0, 0.07, -0.14));
+  const frontDot = new THREE.Mesh(new THREE.SphereGeometry(0.0025, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  frontDot.position.set(0, 0.078, -0.145);
+  g.add(frontDot);
+  const rearDotL = new THREE.Mesh(new THREE.SphereGeometry(0.002, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  rearDotL.position.set(-0.013, 0.075, 0.098);
+  g.add(rearDotL);
+  const rearDotR = new THREE.Mesh(new THREE.SphereGeometry(0.002, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  rearDotR.position.set(0.013, 0.075, 0.098);
+  g.add(rearDotR);
+  g.add(cyl(0.011, 0.013, 0.075, 16, M.chrome, 0, 0.025, -0.18, Math.PI/2, 0, 0));
+  g.add(cyl(0.014, 0.014, 0.012, 16, M.gunmetal, 0, 0.025, -0.215, Math.PI/2, 0, 0));
+  const bore = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.005, 12), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+  bore.position.set(0, 0.025, -0.222);
+  bore.rotation.x = Math.PI/2;
+  g.add(bore);
+  g.add(box(0.055, 0.045, 0.22, M.polymer, 0, -0.02, -0.03));
+  g.add(box(0.052, 0.025, 0.16, M.polymer, 0, -0.055, -0.01));
+  for (let i = 0; i < 6; i++) g.add(box(0.054, 0.006, 0.012, M.gunmetal, 0, -0.075, -0.09 + i * 0.024));
+  for (let i = 0; i < 4; i++) g.add(box(0.056, 0.012, 0.004, M.polymer2, 0, -0.03 - i * 0.014, -0.11));
+  g.add(box(0.008, 0.06, 0.01, M.polymer, -0.026, -0.07, -0.02));
+  g.add(box(0.05, 0.008, 0.075, M.polymer, 0, -0.105, -0.015));
+  g.add(box(0.008, 0.06, 0.01, M.polymer, 0.026, -0.07, 0.005));
+  const trigger = box(0.008, 0.028, 0.006, M.chrome, 0, -0.085, -0.005);
+  trigger.rotation.x = 0.15;
+  g.add(trigger);
+  const grip = box(0.05, 0.15, 0.065, M.rubber, 0, -0.13, 0.075);
+  grip.rotation.x = 0.18;
   g.add(grip);
-  // Насечки на рукояти
-  for (let i = 0; i < 6; i++) g.add(box(0.052, 0.005, 0.062, M.polymer2, 0, -0.06 - i*0.02, 0.08, 0.15, 0, 0));
-  // Магазин
-  g.add(box(0.045, 0.02, 0.05, M.gunmetal, 0, -0.175, 0.08));
-  g.add(box(0.048, 0.008, 0.055, M.polymer, 0, -0.188, 0.08));
-  // Кнопка сброса магазина
-  g.add(box(0.006, 0.012, 0.008, M.chrome, 0.028, -0.05, 0.02));
-  // Точка прицеливания
-  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.003, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  dot.position.set(0, 0.062, -0.10);
+  const gripBack = box(0.04, 0.14, 0.04, M.polymer, 0, -0.13, 0.105);
+  gripBack.rotation.x = 0.18;
+  g.add(gripBack);
+  for (let i = 0; i < 7; i++) g.add(box(0.053, 0.005, 0.068, M.polymer2, 0, -0.07 - i * 0.018, 0.075, 0.18, 0, 0));
+  g.add(box(0.046, 0.012, 0.06, M.polymer, 0, -0.205, 0.088, 0.18, 0, 0));
+  g.add(box(0.04, 0.02, 0.055, M.gunmetal, 0, -0.195, 0.07));
+  g.add(box(0.044, 0.01, 0.06, M.polymer, 0, -0.206, 0.07));
+  g.add(box(0.006, 0.012, 0.008, M.chrome, 0.029, -0.06, 0.04));
+  g.add(box(0.008, 0.006, 0.04, M.brass, 0.026, -0.06, 0.02));
+  g.add(box(0.005, 0.028, 0.06, M.polymer, 0.03, 0.025, 0.0));
+  g.add(box(0.004, 0.012, 0.025, M.gunmetal2, 0.032, 0.035, -0.005));
+  g.add(box(0.006, 0.01, 0.008, M.chrome, -0.03, -0.01, 0.04));
+  g.add(box(0.01, 0.015, 0.01, M.gunmetal, 0, -0.19, 0.045));
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.003, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff3300 }));
+  dot.position.set(0, 0.072, -0.14);
   g.add(dot);
   return g;
 }
@@ -1514,38 +1576,26 @@ function buildPistol() {
 function buildRifle() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
-  // Верхний ресивер
   g.add(box(0.06, 0.08, 0.28, M.gunmetal, 0, 0, -0.05));
-  // Планка Пикатинни сверху
   for (let i = 0; i < 12; i++) g.add(box(0.058, 0.006, 0.014, M.gunmetal2, 0, 0.045, -0.20 + i*0.022));
-  // Нижний ресивер
   g.add(box(0.055, 0.05, 0.24, M.polymer, 0, -0.05, -0.05));
-  // Цевьё с отверстиями
   g.add(box(0.055, 0.06, 0.24, M.polymer, 0, -0.005, -0.32));
   for (let i = 0; i < 5; i++) {
     g.add(box(0.006, 0.03, 0.012, M.gunmetal, 0.028, -0.005, -0.24 - i*0.035));
     g.add(box(0.006, 0.03, 0.012, M.gunmetal, -0.028, -0.005, -0.24 - i*0.035));
   }
-  // Ствол
   g.add(cyl(0.012, 0.014, 0.42, 12, M.gunmetal, 0, 0.01, -0.42, Math.PI/2, 0, 0));
-  // Газоотвод
   g.add(cyl(0.01, 0.01, 0.3, 10, M.gunmetal, 0, 0.04, -0.36, Math.PI/2, 0, 0));
-  // Дульный тормоз
   g.add(cyl(0.017, 0.017, 0.05, 12, M.gunmetal, 0, 0.01, -0.65, Math.PI/2, 0, 0));
   for (let i = 0; i < 3; i++) g.add(box(0.03, 0.004, 0.008, M.gunmetal, 0, 0.022, -0.64 + i*0.012));
-  // Ствольная коробка
   g.add(box(0.06, 0.055, 0.06, M.gunmetal, 0, -0.005, -0.32));
-  // Рукоятка затвора
   g.add(box(0.02, 0.015, 0.05, M.gunmetal, 0.045, 0.02, -0.02));
   g.add(cyl(0.008, 0.008, 0.015, 8, M.chrome, 0.032, -0.03, -0.02, 0, 0, Math.PI/2));
-  // Прицельные
   g.add(box(0.008, 0.03, 0.008, M.polymer, -0.02, 0.075, -0.55));
   g.add(box(0.008, 0.03, 0.008, M.polymer, 0.02, 0.075, -0.55));
   g.add(box(0.008, 0.015, 0.008, M.polymer, 0, 0.07, -0.55));
-  // Задний прицел
   g.add(box(0.045, 0.025, 0.008, M.polymer, 0, 0.065, 0.08));
   g.add(box(0.008, 0.02, 0.01, M.polymer, 0, 0.075, 0.08));
-  // Оптический прицел
   g.add(box(0.05, 0.04, 0.09, M.polymer2, 0, 0.08, -0.06));
   g.add(box(0.04, 0.045, 0.005, M.gunmetal, 0, 0.08, -0.105));
   g.add(box(0.04, 0.045, 0.005, M.gunmetal, 0, 0.08, -0.015));
@@ -1553,9 +1603,7 @@ function buildRifle() {
   const rdot = new THREE.Mesh(new THREE.SphereGeometry(0.002, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff2200 }));
   rdot.position.set(0, 0.08, -0.052);
   g.add(rdot);
-  // Затворная рама
   g.add(box(0.055, 0.03, 0.05, M.gunmetal2, 0, 0.055, 0.02));
-  // Магазин с патронами
   const mag = box(0.04, 0.16, 0.06, M.polymer, 0, -0.14, -0.12);
   mag.rotation.x = -0.15;
   g.add(mag);
@@ -1564,24 +1612,19 @@ function buildRifle() {
   }
   g.add(box(0.035, 0.008, 0.05, M.brass, 0, -0.062, -0.115));
   g.add(box(0.045, 0.012, 0.065, M.rubber, 0, -0.225, -0.10, -0.15, 0, 0));
-  // Кнопка сброса магазина
   g.add(box(0.008, 0.02, 0.008, M.chrome, 0.028, -0.06, -0.02));
-  // Пистолетная рукоять
   const grip = box(0.045, 0.13, 0.05, M.rubber, 0, -0.11, 0.02);
   grip.rotation.x = 0.25;
   g.add(grip);
   for (let i = 0; i < 5; i++) g.add(box(0.046, 0.005, 0.052, M.polymer2, 0, -0.06 - i*0.022, 0.02, 0.25, 0, 0));
-  // Спусковая скоба
   g.add(box(0.05, 0.008, 0.07, M.polymer, 0, -0.05, -0.01));
   g.add(box(0.008, 0.03, 0.008, M.polymer, 0, -0.035, 0.02));
   g.add(box(0.008, 0.02, 0.005, M.chrome, 0, -0.038, 0.005));
-  // Приклад (труба)
   g.add(cyl(0.018, 0.018, 0.15, 12, M.polymer2, 0, 0, 0.13, Math.PI/2, 0, 0));
   g.add(box(0.05, 0.09, 0.18, M.polymer, 0, -0.01, 0.24));
   g.add(box(0.055, 0.11, 0.02, M.rubber, 0, -0.01, 0.34));
   g.add(box(0.045, 0.02, 0.1, M.polymer, 0, 0.045, 0.24));
-  // Антабка для ремня
-  g.add(box(0.02, 0.02, 0.02, M.metal || M.gunmetal, 0, -0.13, 0.34));
+  g.add(box(0.02, 0.02, 0.02, M.gunmetal, 0, -0.13, 0.34));
   g.add(box(0.02, 0.02, 0.02, M.gunmetal, 0, -0.03, -0.6));
   return g;
 }
@@ -1589,42 +1632,29 @@ function buildRifle() {
 function buildShotgun() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
-  // Ствол
   g.add(cyl(0.022, 0.022, 0.55, 16, M.gunmetal, 0, 0.03, -0.42, Math.PI/2, 0, 0));
-  // Подствольный магазин
   g.add(cyl(0.016, 0.016, 0.5, 12, M.gunmetal, 0, -0.015, -0.4, Math.PI/2, 0, 0));
-  // Дульный срез
   g.add(cyl(0.025, 0.025, 0.03, 16, M.gunmetal, 0, 0.03, -0.7, Math.PI/2, 0, 0));
-  // Мушка
   g.add(box(0.006, 0.02, 0.006, M.brass, 0, 0.055, -0.66));
-  // Цевьё деревянное с насечками
   g.add(box(0.065, 0.055, 0.14, M.wood, 0, -0.015, -0.28));
   for (let i = 0; i < 7; i++) g.add(box(0.067, 0.05, 0.006, M.wood2, 0, -0.015, -0.23 - i*0.015));
-  // Ресивер
   g.add(box(0.07, 0.09, 0.22, M.gunmetal, 0, 0.005, -0.05));
-  // Эжекционное окно
   g.add(box(0.005, 0.035, 0.07, M.polymer, 0.036, 0.005, -0.05));
-  // Спусковая скоба
   g.add(box(0.055, 0.008, 0.07, M.polymer, 0, -0.05, 0.02));
   g.add(box(0.008, 0.03, 0.008, M.polymer, 0, -0.035, 0.045));
   g.add(box(0.008, 0.022, 0.005, M.chrome, 0, -0.038, 0.03));
-  // Приклад
   const stock = box(0.06, 0.10, 0.28, M.wood, 0, -0.01, 0.16);
   stock.rotation.x = -0.05;
   g.add(stock);
   g.add(box(0.05, 0.02, 0.15, M.wood2, 0, 0.045, 0.14));
   g.add(box(0.065, 0.12, 0.02, M.rubber, 0, -0.01, 0.31));
-  // Пистолетная рукоять
   const grip = box(0.05, 0.13, 0.055, M.wood, 0, -0.09, 0.04);
   grip.rotation.x = 0.2;
   g.add(grip);
   for (let i = 0; i < 5; i++) g.add(box(0.052, 0.005, 0.057, M.wood2, 0, -0.045 - i*0.022, 0.04, 0.2, 0, 0));
-  // Прицельные
   g.add(box(0.03, 0.012, 0.008, M.gunmetal, 0, 0.06, 0.02));
   g.add(box(0.008, 0.01, 0.008, M.gunmetal, 0, 0.065, 0.02));
-  // Патроны на прикладе
   for (let i = 0; i < 5; i++) g.add(cyl(0.006, 0.006, 0.04, 8, M.brass, 0.04, 0.03, 0.10 + i*0.035, 0, 0, Math.PI/2));
-  // Антабки
   g.add(box(0.015, 0.015, 0.015, M.gunmetal, 0, -0.07, 0.31));
   return g;
 }
@@ -1632,67 +1662,50 @@ function buildShotgun() {
 function buildSniper() {
   const M = makeGunMaterials();
   const g = new THREE.Group();
-  // Ствол длинный
   g.add(cyl(0.014, 0.018, 0.7, 16, M.gunmetal, 0, 0.02, -0.65, Math.PI/2, 0, 0));
-  // Дульный тормоз
   g.add(cyl(0.022, 0.022, 0.06, 16, M.gunmetal, 0, 0.02, -1.0, Math.PI/2, 0, 0));
   for (let i = 0; i < 4; i++) {
     g.add(box(0.046, 0.005, 0.008, M.gunmetal, 0, 0.04, -1.02 + i*0.014));
     g.add(box(0.046, 0.005, 0.008, M.gunmetal, 0, 0.0, -1.02 + i*0.014));
   }
-  // Цевьё с вентиляцией
   g.add(box(0.06, 0.055, 0.4, M.polymer, 0, -0.005, -0.42));
   for (let i = 0; i < 6; i++) {
     g.add(box(0.008, 0.025, 0.012, M.gunmetal, 0.032, -0.005, -0.28 - i*0.05));
     g.add(box(0.008, 0.025, 0.012, M.gunmetal, -0.032, -0.005, -0.28 - i*0.05));
   }
-  // Сошки
   g.add(box(0.008, 0.008, 0.12, M.gunmetal, 0.035, -0.03, -0.5));
   g.add(box(0.008, 0.008, 0.12, M.gunmetal, -0.035, -0.03, -0.5));
-  // Ресивер
   g.add(box(0.065, 0.09, 0.3, M.gunmetal, 0, 0.0, -0.05));
   for (let i = 0; i < 8; i++) g.add(box(0.055, 0.008, 0.02, M.polymer, 0, 0.05, -0.15 + i*0.025));
-  // Затвор
   g.add(cyl(0.008, 0.008, 0.06, 8, M.chrome, 0.05, 0.0, 0.02, 0, 0, Math.PI/2));
   const bolt = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 8), M.chrome);
   bolt.position.set(0.08, 0.0, 0.02);
   g.add(bolt);
-  // Приклад
   g.add(box(0.06, 0.11, 0.32, M.polymer, 0, -0.01, 0.22));
   g.add(box(0.055, 0.025, 0.14, M.rubber, 0, 0.055, 0.20));
   g.add(box(0.07, 0.13, 0.025, M.rubber, 0, -0.01, 0.40));
   g.add(box(0.04, 0.03, 0.1, M.gunmetal, 0, -0.03, 0.22));
-  // Регулируемая щека
   g.add(box(0.05, 0.015, 0.12, M.rubber, 0, 0.06, 0.26));
-  // Пистолетная рукоять
   const grip = box(0.05, 0.14, 0.055, M.rubber, 0, -0.11, 0.03);
   grip.rotation.x = 0.22;
   g.add(grip);
   for (let i = 0; i < 5; i++) g.add(box(0.052, 0.005, 0.057, M.polymer2, 0, -0.07 - i*0.022, 0.03, 0.22, 0, 0));
-  // Спусковая скоба
   g.add(box(0.055, 0.008, 0.08, M.polymer, 0, -0.05, 0.02));
   g.add(box(0.008, 0.03, 0.008, M.polymer, 0, -0.033, 0.05));
   g.add(box(0.008, 0.024, 0.005, M.chrome, 0, -0.04, 0.03));
-  // Магазин
   g.add(box(0.045, 0.08, 0.06, M.polymer, 0, -0.09, -0.12));
   g.add(box(0.05, 0.008, 0.065, M.rubber, 0, -0.135, -0.12));
-  // Крепления прицела
   g.add(box(0.04, 0.03, 0.08, M.gunmetal, 0, 0.07, -0.08));
   g.add(box(0.04, 0.03, 0.08, M.gunmetal, 0, 0.07, 0.06));
-  // Оптический прицел большой
   g.add(cyl(0.028, 0.028, 0.32, 16, M.polymer, 0, 0.10, -0.05, Math.PI/2, 0, 0));
-  // Линзы
   g.add(cyl(0.035, 0.035, 0.03, 16, M.gunmetal, 0, 0.10, -0.21, Math.PI/2, 0, 0));
   g.add(cyl(0.033, 0.033, 0.004, 16, M.glass, 0, 0.10, -0.222, Math.PI/2, 0, 0));
   g.add(cyl(0.032, 0.032, 0.03, 16, M.gunmetal, 0, 0.10, 0.11, Math.PI/2, 0, 0));
   g.add(cyl(0.03, 0.03, 0.004, 16, M.glass, 0, 0.10, 0.122, Math.PI/2, 0, 0));
-  // Барабанчики
   g.add(cyl(0.032, 0.032, 0.015, 12, M.gunmetal, 0, 0.10, -0.13, Math.PI/2, 0, 0));
   g.add(cyl(0.032, 0.032, 0.015, 12, M.gunmetal, 0, 0.10, 0.03, Math.PI/2, 0, 0));
-  // Боковой барабанчик
   g.add(cyl(0.014, 0.014, 0.02, 10, M.gunmetal, 0.035, 0.10, -0.05, 0, 0, Math.PI/2));
   g.add(cyl(0.014, 0.014, 0.02, 10, M.gunmetal, 0, 0.135, -0.05, Math.PI/2, 0, 0));
-  // Красная точка
   const rdot = new THREE.Mesh(new THREE.SphereGeometry(0.002, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff2200 }));
   rdot.position.set(0, 0.10, 0.06);
   g.add(rdot);
@@ -1753,71 +1766,51 @@ function createEnemy() {
   const g = new THREE.Group();
   const M = makeEnemyMaterials();
   
-  // ===== НОГИ =====
   const thighL = boxE(0.22, 0.5, 0.24, M.uniform, -0.13, 0.7, 0);
   const thighR = boxE(0.22, 0.5, 0.24, M.uniform,  0.13, 0.7, 0);
   g.add(thighL); g.add(thighR);
-  // Швы на бёдрах
   g.add(boxE(0.23, 0.48, 0.005, M.uniform2, -0.13, 0.7, -0.12));
   g.add(boxE(0.23, 0.48, 0.005, M.uniform2,  0.13, 0.7, -0.12));
-  // Наколенники
   g.add(boxE(0.24, 0.12, 0.26, M.vest, -0.13, 0.42, 0));
   g.add(boxE(0.24, 0.12, 0.26, M.vest,  0.13, 0.42, 0));
-  // Голени
   const shinL = boxE(0.20, 0.42, 0.22, M.uniform, -0.13, 0.22, 0);
   const shinR = boxE(0.20, 0.42, 0.22, M.uniform,  0.13, 0.22, 0);
   g.add(shinL); g.add(shinR);
-  // Ботинки
   g.add(boxE(0.24, 0.14, 0.34, M.boot, -0.13, 0.07, -0.04));
   g.add(boxE(0.24, 0.14, 0.34, M.boot,  0.13, 0.07, -0.04));
-  // Подошва
   g.add(boxE(0.26, 0.03, 0.36, M.bootSole, -0.13, 0.015, -0.04));
   g.add(boxE(0.26, 0.03, 0.36, M.bootSole,  0.13, 0.015, -0.04));
-  // Шнуровка
   for (let i = 0; i < 3; i++) {
     g.add(boxE(0.05, 0.005, 0.20, M.strap, -0.13, 0.05 + i*0.03, -0.10));
     g.add(boxE(0.05, 0.005, 0.20, M.strap,  0.13, 0.05 + i*0.03, -0.10));
   }
-  // Кобура на правом бедре
   g.add(boxE(0.14, 0.24, 0.10, M.vest, 0.24, 0.65, 0.05));
   g.add(boxE(0.15, 0.06, 0.11, M.vestDark, 0.24, 0.53, 0.05));
-  // Стропы кобуры
   g.add(boxE(0.02, 0.28, 0.10, M.strap, 0.20, 0.65, 0.05));
   
-  // ===== ТОРС =====
   g.add(boxE(0.62, 0.72, 0.32, M.uniform, 0, 1.28, 0));
-  // Швы на торсе
   g.add(boxE(0.005, 0.7, 0.33, M.uniform2, -0.20, 1.28, 0));
   g.add(boxE(0.005, 0.7, 0.33, M.uniform2, 0.20, 1.28, 0));
-  // Тактический жилет
   g.add(boxE(0.66, 0.62, 0.14, M.vest, 0, 1.30, -0.16));
   g.add(boxE(0.66, 0.62, 0.10, M.vest, 0, 1.30, 0.16));
-  // Боковые лямки
   g.add(boxE(0.08, 0.62, 0.44, M.vest, -0.31, 1.30, 0));
   g.add(boxE(0.08, 0.62, 0.44, M.vest,  0.31, 1.30, 0));
-  // Бронепластина
   g.add(boxE(0.42, 0.42, 0.06, M.vestDark, 0, 1.38, -0.235));
-  // Подсумки на груди
   for (let i = 0; i < 4; i++) {
     g.add(boxE(0.14, 0.16, 0.08, M.vestDark, -0.22 + i*0.16, 1.20, -0.24));
     g.add(boxE(0.14, 0.02, 0.09, M.strap, -0.22 + i*0.16, 1.23, -0.245));
     g.add(boxE(0.04, 0.04, 0.01, M.metal, -0.22 + i*0.16, 1.18, -0.28));
   }
-  // Ремень
   g.add(boxE(0.66, 0.10, 0.34, M.strap, 0, 0.96, 0));
   g.add(boxE(0.10, 0.08, 0.02, M.metal, 0, 0.96, -0.18));
-  // Патчи
   g.add(boxE(0.10, 0.06, 0.01, M.patch, -0.32, 1.42, -0.19));
   g.add(boxE(0.08, 0.05, 0.01, M.patch2, 0.32, 1.42, -0.19));
-  // Рация на плече
   g.add(boxE(0.06, 0.14, 0.05, M.vestDark, -0.34, 1.32, -0.13));
   g.add(boxE(0.02, 0.10, 0.02, M.metal, -0.34, 1.38, -0.13));
   g.add(cylE(0.005, 0.005, 0.18, 6, M.metal, -0.34, 1.50, -0.13));
-  // Рюкзак
   g.add(boxE(0.42, 0.42, 0.14, M.vest, 0, 1.30, 0.24));
   g.add(boxE(0.42, 0.02, 0.14, M.strap, 0, 1.42, 0.24));
   g.add(boxE(0.42, 0.02, 0.14, M.strap, 0, 1.18, 0.24));
-  // Трубка гидратора
   const tubeGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.5, 8);
   const tube = new THREE.Mesh(tubeGeo, M.strap);
   tube.position.set(0.18, 1.5, 0.2);
@@ -1825,14 +1818,11 @@ function createEnemy() {
   tube.rotation.x = -0.4;
   g.add(tube);
   
-  // ===== ШЕЯ =====
   g.add(boxE(0.16, 0.10, 0.16, M.skin, 0, 1.68, 0));
   
-  // ===== ГОЛОВА =====
   const head = boxE(0.30, 0.32, 0.32, M.skin, 0, 1.87, 0);
   g.add(head);
   g.add(boxE(0.22, 0.06, 0.28, M.skin, 0, 1.72, 0));
-  // Шлем
   const helmet = new THREE.Mesh(
     new THREE.SphereGeometry(0.20, 20, 14, 0, Math.PI*2, 0, Math.PI*0.62),
     M.helmet
@@ -1840,55 +1830,54 @@ function createEnemy() {
   helmet.position.set(0, 1.90, 0);
   helmet.castShadow = true;
   g.add(helmet);
-  // Внутренняя часть шлема
   g.add(cylE(0.19, 0.19, 0.02, 20, M.helmet2, 0, 1.80, 0));
-  // Козырёк
   g.add(boxE(0.34, 0.03, 0.14, M.helmet, 0, 1.88, -0.14, -0.15, 0, 0));
-  // Rails
   g.add(boxE(0.02, 0.02, 0.18, M.metal, -0.19, 1.90, -0.02));
   g.add(boxE(0.02, 0.02, 0.18, M.metal,  0.19, 1.90, -0.02));
-  // NVG-крепление
   g.add(boxE(0.10, 0.05, 0.05, M.vestDark, 0, 1.93, -0.19));
-  // Наушники
   g.add(cylE(0.06, 0.06, 0.05, 12, M.vestDark, -0.19, 1.86, 0.02, 0, 0, Math.PI/2));
   g.add(cylE(0.06, 0.06, 0.05, 12, M.vestDark,  0.19, 1.86, 0.02, 0, 0, Math.PI/2));
-  // Микрофон
   g.add(cylE(0.008, 0.008, 0.14, 6, M.metal, -0.22, 1.82, -0.10, 0, 0, Math.PI/2));
   g.add(boxE(0.03, 0.02, 0.02, M.vestDark, -0.28, 1.82, -0.12));
-  // Очки
   g.add(boxE(0.30, 0.08, 0.06, M.goggle, 0, 1.88, -0.16));
   g.add(boxE(0.28, 0.05, 0.02, M.lensDark, 0, 1.88, -0.19));
-  // Ремешок очков
   g.add(boxE(0.02, 0.06, 0.30, M.strap, -0.16, 1.88, 0.02));
   g.add(boxE(0.02, 0.06, 0.30, M.strap,  0.16, 1.88, 0.02));
   
-  // ===== ПЛЕЧИ =====
   g.add(boxE(0.20, 0.14, 0.28, M.uniform, -0.41, 1.56, 0));
   g.add(boxE(0.20, 0.14, 0.28, M.uniform,  0.41, 1.56, 0));
   g.add(boxE(0.22, 0.06, 0.28, M.vest, -0.41, 1.62, 0));
   g.add(boxE(0.22, 0.06, 0.28, M.vest,  0.41, 1.62, 0));
   
-  // ===== РУКИ =====
   const upperArmL = boxE(0.18, 0.36, 0.20, M.uniform, -0.46, 1.34, 0);
   const upperArmR = boxE(0.18, 0.36, 0.20, M.uniform,  0.46, 1.34, 0);
   g.add(upperArmL); g.add(upperArmR);
-  // Локти
   g.add(boxE(0.18, 0.06, 0.20, M.vestDark, -0.46, 1.14, 0));
   g.add(boxE(0.18, 0.06, 0.20, M.vestDark,  0.46, 1.14, 0));
-  // Предплечья
   const forearmL = boxE(0.16, 0.32, 0.18, M.uniform, -0.46, 1.02, -0.10, 0.7, 0, 0);
   const forearmR = boxE(0.16, 0.32, 0.18, M.uniform,  0.46, 1.02, -0.10, 0.7, 0, 0);
   g.add(forearmL); g.add(forearmR);
-  // Перчатки
   const handL = boxE(0.15, 0.14, 0.16, M.glove, -0.42, 1.20, -0.24);
   const handR = boxE(0.15, 0.14, 0.16, M.glove,  0.38, 1.20, -0.28);
   g.add(handL); g.add(handR);
   
-  // ===== ОРУЖИЕ =====
   const enemyWeapon = createWeaponModel(config.weapon, true);
   enemyWeapon.position.set(0.28, 1.22, -0.35);
   enemyWeapon.rotation.y = -0.05;
   g.add(enemyWeapon);
+  
+  // ==== ИНДИВИДУАЛЬНЫЙ ПРОФИЛЬ ИИ ====
+  const profile = {
+    aggression: 0.5 + Math.random() * 0.5,
+    accuracy: 0.35 + Math.random() * 0.45,
+    reactionTime: 250 + Math.random() * 350,
+    preferredRange: 7 + Math.random() * 10,
+    strafeDir: Math.random() > 0.5 ? 1 : -1,
+    strafeTimer: 0,
+    memoryDuration: 3000 + Math.random() * 4000,
+    courage: 0.4 + Math.random() * 0.6,
+    flankTimer: 0
+  };
   
   g.userData = {
     hp: 100,
@@ -1900,6 +1889,12 @@ function createEnemy() {
     shinL, shinR,
     walkPhase: Math.random() * Math.PI * 2,
     radius: 0.5,
+    profile: profile,
+    canSeePlayer: false,
+    lastSeenPlayerTime: 0,
+    lastSeenPlayerPos: new THREE.Vector3(),
+    state: 'patrol',
+    stateTimer: 0,
     hitboxes: [
       { part: 'HEAD',  center: new THREE.Vector3(0, 1.87, 0), size: new THREE.Vector3(0.32, 0.36, 0.34) },
       { part: 'TORSO', center: new THREE.Vector3(0, 1.30, 0), size: new THREE.Vector3(0.66, 0.60, 0.40) },
@@ -1926,10 +1921,8 @@ function createPlayerModel() {
     helmet: new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.65, metalness: 0.2 })
   };
   
-  // Торс
   g.add(boxE(0.6, 0.7, 0.3, M.uniform, 0, 1.3, 0));
   g.add(boxE(0.62, 0.5, 0.12, M.vest, 0, 1.3, -0.15));
-  // Голова
   g.add(boxE(0.28, 0.3, 0.3, M.skin, 0, 1.85, 0));
   const helmet = new THREE.Mesh(
     new THREE.SphereGeometry(0.19, 16, 12, 0, Math.PI*2, 0, Math.PI*0.6),
@@ -1938,27 +1931,22 @@ function createPlayerModel() {
   helmet.position.set(0, 1.88, 0);
   helmet.castShadow = true;
   g.add(helmet);
-  // Плечи
   g.add(boxE(0.18, 0.12, 0.26, M.uniform, -0.4, 1.55, 0));
   g.add(boxE(0.18, 0.12, 0.26, M.uniform, 0.4, 1.55, 0));
-  // Руки
   g.add(boxE(0.16, 0.34, 0.18, M.uniform, -0.45, 1.33, 0));
   g.add(boxE(0.16, 0.34, 0.18, M.uniform, 0.45, 1.33, 0));
   g.add(boxE(0.14, 0.3, 0.16, M.uniform, -0.45, 1.0, -0.1, 0.7, 0, 0));
   g.add(boxE(0.14, 0.3, 0.16, M.uniform, 0.45, 1.0, -0.1, 0.7, 0, 0));
-  // Кисти
   g.add(boxE(0.13, 0.12, 0.14, M.glove, -0.42, 1.18, -0.24));
   g.add(boxE(0.13, 0.12, 0.14, M.glove, 0.38, 1.18, -0.28));
-  // Ноги
   g.add(boxE(0.2, 0.5, 0.22, M.uniform, -0.13, 0.7, 0));
   g.add(boxE(0.2, 0.5, 0.22, M.uniform, 0.13, 0.7, 0));
   g.add(boxE(0.18, 0.42, 0.2, M.uniform, -0.13, 0.22, 0));
   g.add(boxE(0.18, 0.42, 0.2, M.uniform, 0.13, 0.22, 0));
-  // Ботинки
   g.add(boxE(0.22, 0.14, 0.32, M.vest, -0.13, 0.07, -0.04));
   g.add(boxE(0.22, 0.14, 0.32, M.vest, 0.13, 0.07, -0.04));
   
-  g.visible = false; // показываем только в нужных случаях
+  g.visible = false;
   return g;
 }
 
@@ -1995,6 +1983,11 @@ function initGame() {
   state.targetFov = settings.fov;
   camera.fov = settings.fov;
   camera.updateProjectionMatrix();
+  state.lastShotgunPump = 0;
+  state.isPumping = false;
+  state.playerNoise = 0;
+  state.playerLastSeen = 0;
+  state.playerLastPos.copy(state.playerPos);
   
   weaponModel = createWeaponModel(config.weapon, false);
   weaponModel.position.set(0.28, -0.26, -0.5);
@@ -2184,64 +2177,103 @@ const raycaster = new THREE.Raycaster();
 function shoot() {
   const w = WEAPONS[config.weapon];
   const now = performance.now();
-  if (now - state.lastShot < w.fireRate) return;
+
+  if (config.weapon === 'shotgun') {
+    if (state.isPumping) return;
+    if (now - state.lastShot < w.pumpTime) return;
+  } else {
+    if (now - state.lastShot < w.fireRate) return;
+  }
+
   if (state.reloading) return;
   if (state.ammo <= 0) { if (settings.autoReload) reload(); return; }
-  
+
   state.lastShot = now;
   state.ammo--;
   updateHUD();
-  
-  // Отдача
+
   state.recoilPitch += w.recoil * (0.8 + Math.random() * 0.4);
   state.recoilYaw += (Math.random() - 0.5) * w.recoil * 0.5;
   state.weaponRecoil = w.recoilKick;
-  
+
   if (weaponModel && state.weaponBasePos) {
     weaponModel.position.z = state.weaponBasePos.z + 0.06;
     setTimeout(() => {
       if (weaponModel && !state.ads && state.weaponBasePos) weaponModel.position.z = state.weaponBasePos.z;
     }, 50);
   }
-  
+
+  if (config.weapon === 'shotgun') {
+    state.isPumping = true;
+    if (weaponModel && state.weaponBasePos) {
+      const baseZ = state.weaponBasePos.z;
+      const baseY = state.weaponBasePos.y;
+      const start = performance.now();
+      const dur = w.pumpTime;
+      function pumpAnim() {
+        if (!weaponModel || !state.weaponBasePos) { state.isPumping = false; return; }
+        const t = (performance.now() - start) / dur;
+        if (t >= 1) {
+          weaponModel.position.z = baseZ;
+          weaponModel.position.y = baseY;
+          state.isPumping = false;
+          return;
+        }
+        const swing = Math.sin(t * Math.PI);
+        weaponModel.position.z = baseZ + swing * w.pumpAnim;
+        weaponModel.position.y = baseY - swing * w.pumpAnim * 0.5;
+        requestAnimationFrame(pumpAnim);
+      }
+      pumpAnim();
+    } else {
+      setTimeout(() => { state.isPumping = false; }, w.pumpTime);
+    }
+  }
+
   const pellets = w.pellets || 1;
   const eyePos = camera.getWorldPosition(new THREE.Vector3());
-  
+
   let muzzleLocal;
   if (state.ads) muzzleLocal = new THREE.Vector3(0, -0.05, -0.5);
   else muzzleLocal = new THREE.Vector3(0.25, -0.15, -0.7);
   const muzzlePos = eyePos.clone().add(muzzleLocal.applyEuler(camera.rotation));
-  
-  // Вспышка
+
   if (settings.muzzleFlash) {
     const flash = new THREE.PointLight(0xffaa44, 5, 6);
     flash.position.copy(muzzlePos);
     scene.add(flash);
     impacts.push({ mesh: flash, life: 0.05, isLight: true });
   }
-  
-  // Гильза
+
   if (settings.shellCasings) {
     spawnShellCasing(muzzlePos, camera.rotation);
   }
-  
-  const spreadMult = state.ads ? w.adsSpreadMult : 1;
-  
+
+  const spreadMult = (state.ads ? w.adsSpreadMult : 1) * (settings.weaponSpread / 100);
+
   for (let p = 0; p < pellets; p++) {
     const dir = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation);
-    dir.x += (Math.random() - 0.5) * w.spread * 10 * spreadMult;
-    dir.y += (Math.random() - 0.5) * w.spread * 10 * spreadMult;
-    dir.z += (Math.random() - 0.5) * w.spread * 10 * spreadMult;
+
+    if (config.weapon === 'shotgun') {
+      const pelletSpread = (w.pelletSpread || w.spread) * spreadMult;
+      dir.x += (Math.random() - 0.5) * pelletSpread * 2;
+      dir.y += (Math.random() - 0.5) * pelletSpread * 2;
+      dir.z += (Math.random() - 0.5) * pelletSpread * 2;
+    } else {
+      dir.x += (Math.random() - 0.5) * w.spread * 10 * spreadMult;
+      dir.y += (Math.random() - 0.5) * w.spread * 10 * spreadMult;
+      dir.z += (Math.random() - 0.5) * w.spread * 10 * spreadMult;
+    }
     dir.normalize();
-    
+
     spawnBullet(muzzlePos.clone(), dir.clone(), w.bulletSpeed, false);
-    
+
     raycaster.set(eyePos, dir);
     raycaster.far = 100;
-    
+
     const wallHits = raycaster.intersectObjects(mapGroup.children, false);
     const wallDist = wallHits.length > 0 ? wallHits[0].distance : Infinity;
-    
+
     let closestEnemy = null, closestDist = Infinity, closestPoint = null;
     for (const enemy of state.enemies) {
       const intersects = raycaster.intersectObjects(enemy.children, true);
@@ -2251,21 +2283,33 @@ function shoot() {
         closestPoint = intersects[0].point;
       }
     }
-    
+
     if (closestEnemy && closestDist < wallDist) {
       const zone = getHitZone(closestEnemy, closestPoint);
       const hb = HITBOX[zone];
-      const dmg = (w.damage / pellets) * hb.mult;
+      let dmg = (w.damage / pellets) * hb.mult;
+
+      if (config.weapon === 'shotgun' && closestDist > w.falloffStart) {
+        const t = Math.min(1, (closestDist - w.falloffStart) / (w.falloffEnd - w.falloffStart));
+        dmg *= (1 - t * 0.85);
+      }
+
       closestEnemy.userData.hp -= dmg;
-      
+
+      if (config.weapon === 'shotgun' && w.knockback) {
+        const knockDir = new THREE.Vector3().subVectors(closestEnemy.position, state.playerPos).normalize();
+        closestEnemy.userData.velocity.x += knockDir.x * w.knockback;
+        closestEnemy.userData.velocity.z += knockDir.z * w.knockback;
+      }
+
       if (settings.hitmarker) showHitmark(zone);
       if (settings.bloodEffects) spawnDetailedBlood(closestPoint, zone, dir);
-      
+
       if (zone === 'HEAD' && closestEnemy.userData.hp <= 0) {
         state.headshots++;
         addKillFeed('💀 ХЕДШОТ!', '#ff2222');
       }
-      
+
       if (closestEnemy.userData.hp <= 0) {
         killEnemy(closestEnemy, zone);
       }
@@ -2273,9 +2317,12 @@ function shoot() {
       spawnImpact(wallHits[0].point, wallHits[0].face ? wallHits[0].face.normal : new THREE.Vector3(0,1,0));
     }
   }
-  
-  if (w.auto && mouse.down) {
+
+  if (w.auto && config.weapon !== 'shotgun' && mouse.down) {
     setTimeout(() => { if(mouse.down && state.running) shoot(); }, w.fireRate);
+  }
+  if (w.auto && config.weapon === 'shotgun' && mouse.down) {
+    setTimeout(() => { if(mouse.down && state.running) shoot(); }, w.pumpTime);
   }
 }
 
@@ -2367,7 +2414,6 @@ function spawnImpact(pos, normal) {
   spark.position.copy(pos).add(normal.clone().multiplyScalar(0.05));
   scene.add(spark);
   impacts.push({ mesh: spark, life: 0.3 });
-  // Мини-искры
   for (let i = 0; i < 4; i++) {
     const s = new THREE.Mesh(
       new THREE.SphereGeometry(0.02, 4, 4),
@@ -2466,11 +2512,9 @@ function updatePlayer(dt) {
   
   const w = WEAPONS[config.weapon];
   
-  // Плавное движение мыши (инерция)
   yaw += (targetYaw - yaw) * Math.min(1, dt * 25);
   pitch += (targetPitch - pitch) * Math.min(1, dt * 25);
   
-  // Восстановление отдачи
   if (state.recoilPitch > 0) {
     targetPitch += state.recoilPitch;
     state.recoilPitch *= Math.max(0, 1 - dt * 8);
@@ -2493,14 +2537,12 @@ function updatePlayer(dt) {
     camera.updateProjectionMatrix();
   }
   
-  // Приседание
   const crouchKey = settings.keybinds.crouch || 'ControlLeft';
   const wantCrouch = keys[crouchKey] && state.onGround;
   state.crouchAmount += ((wantCrouch ? 1 : 0) - state.crouchAmount) * Math.min(1, dt * 10);
   state.crouching = state.crouchAmount > 0.5;
   const currentHeight = PLAYER_HEIGHT - (PLAYER_HEIGHT - CROUCH_HEIGHT) * state.crouchAmount;
   
-  // Sway оружия
   const swaySpeed = 3;
   state.weaponSway.x += (-(targetYaw - yaw) * 2 - state.weaponSway.x) * Math.min(1, dt * swaySpeed);
   state.weaponSway.y += (-(targetPitch - pitch) * 2 - state.weaponSway.y) * Math.min(1, dt * swaySpeed);
@@ -2517,7 +2559,6 @@ function updatePlayer(dt) {
     weaponModel.position.z = THREE.MathUtils.lerp(basePos.z, adsPos.z, state.adsProgress);
     weaponModel.rotation.y = THREE.MathUtils.lerp(-0.02, 0, state.adsProgress);
     weaponModel.rotation.x = -swayY * 2;
-    // Отдача
     state.weaponRecoil *= Math.max(0, 1 - dt * 10);
     weaponModel.position.z += state.weaponRecoil * 0.5;
     weaponModel.rotation.x -= state.weaponRecoil * 3;
@@ -2538,7 +2579,6 @@ function updatePlayer(dt) {
     scope.style.display = 'none';
   }
   
-  // ===== ФИЗИКА ДВИЖЕНИЯ =====
   const speedMult = state.ads ? 0.5 : (state.crouching ? 0.4 : 1);
   const sprintKey = settings.keybinds.sprint || 'ShiftLeft';
   const isSprinting = keys[sprintKey] && !state.ads && !state.crouching;
@@ -2554,7 +2594,6 @@ function updatePlayer(dt) {
   if (keys[kb.left]    || keys['ArrowLeft'])  move.sub(right);
   if (move.lengthSq() > 0) move.normalize();
   
-  // Ускорение/торможение
   const accel = 40;
   const friction = 12;
   const targetVel = move.clone().multiplyScalar(maxSpeed);
@@ -2565,7 +2604,6 @@ function updatePlayer(dt) {
   
   tryMoveXZ(state.playerPos, state.playerVelocity.x * dt, state.playerVelocity.z * dt, PLAYER_RADIUS, currentHeight);
   
-  // Гравитация
   state.playerVelocity.y -= 25 * dt;
   if (keys[kb.jump] && state.onGround && !state.crouching) {
     state.playerVelocity.y = 8;
@@ -2582,7 +2620,6 @@ function updatePlayer(dt) {
   state.playerPos.x = Math.max(-LIMIT, Math.min(LIMIT, state.playerPos.x));
   state.playerPos.z = Math.max(-LIMIT, Math.min(LIMIT, state.playerPos.z));
   
-  // Покачивание камеры (head bob)
   const horizontalSpeed = Math.hypot(state.playerVelocity.x, state.playerVelocity.z);
   if (state.onGround && horizontalSpeed > 0.5) {
     state.bobPhase += dt * (isSprinting ? 14 : 10);
@@ -2600,7 +2637,6 @@ function updatePlayer(dt) {
   camera.rotation.x = pitch;
   camera.rotation.z = bobX * 0.5;
   
-  // Footsteps
   if (state.onGround && horizontalSpeed > 1) {
     const now = performance.now();
     const interval = isSprinting ? 280 : 400;
@@ -2610,7 +2646,13 @@ function updatePlayer(dt) {
     }
   }
   
-  // Обновление модели игрока
+  let noise = 0;
+  if (horizontalSpeed > 0.5) {
+    noise = isSprinting ? 1.0 : (state.crouching ? 0.2 : 0.6);
+  }
+  state.playerNoise = state.playerNoise * 0.9 + noise * 0.1;
+  state.playerLastPos.copy(state.playerPos);
+  
   if (playerModel) {
     playerModel.position.copy(state.playerPos);
     playerModel.position.y = currentHeight - PLAYER_HEIGHT;
@@ -2634,7 +2676,43 @@ function spawnFootDust() {
   impacts.push({ mesh: dust, life: 0.6, gravity: true, fade: true });
 }
 
-// ==== ИИ ВРАГОВ ====
+// ============================================================
+// ============== УЛУЧШЕННЫЙ ИИ ВРАГОВ ======================
+// ============================================================
+
+function checkLineOfSightEnemy(enemy, targetPos, dist) {
+  const origin = enemy.position.clone().add(new THREE.Vector3(0, 1.5, 0));
+  const target = targetPos.clone().add(new THREE.Vector3(0, -0.3, 0));
+  const dir = target.clone().sub(origin).normalize();
+  raycaster.set(origin, dir);
+  raycaster.far = dist;
+  const hits = raycaster.intersectObjects(mapGroup.children, false);
+  if (hits.length > 0 && hits[0].distance < dist - 0.5) return false;
+  return true;
+}
+
+function findNearestCover(enemy, fromPos) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const wallBox of state.walls) {
+    const center = wallBox.getCenter(new THREE.Vector3());
+    const size = wallBox.getSize(new THREE.Vector3());
+    if (size.x > 50 || size.z > 50) continue;
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) {
+      const ox = Math.cos(a) * (size.x / 2 + 1.5);
+      const oz = Math.sin(a) * (size.z / 2 + 1.5);
+      const candidate = new THREE.Vector3(center.x + ox, 0, center.z + oz);
+      if (insideWall(candidate.x, candidate.z, 0.6)) continue;
+      const d = candidate.distanceTo(enemy.position);
+      if (d < bestDist && d < 20) {
+        bestDist = d;
+        best = candidate;
+      }
+    }
+  }
+  return best;
+}
+
 function updateEnemies(dt) {
   const now = performance.now();
   
@@ -2643,6 +2721,16 @@ function updateEnemies(dt) {
                  : settings.difficulty === 'nightmare' ? 2.0 : 1.0;
   
   for (const enemy of state.enemies) {
+    const p = enemy.userData.profile;
+    
+    if (enemy.userData.velocity.x !== 0 || enemy.userData.velocity.z !== 0) {
+      tryMoveXZ(enemy.position, enemy.userData.velocity.x * dt, enemy.userData.velocity.z * dt, enemy.userData.radius, 1.9);
+      enemy.userData.velocity.x *= Math.max(0, 1 - dt * 4);
+      enemy.userData.velocity.z *= Math.max(0, 1 - dt * 4);
+      if (Math.abs(enemy.userData.velocity.x) < 0.01) enemy.userData.velocity.x = 0;
+      if (Math.abs(enemy.userData.velocity.z) < 0.01) enemy.userData.velocity.z = 0;
+    }
+    
     if (enemy.position.y > 0) {
       enemy.userData.velocity.y -= 25 * dt;
       enemy.position.y += enemy.userData.velocity.y * dt;
@@ -2660,9 +2748,190 @@ function updateEnemies(dt) {
     const lookTarget = new THREE.Vector3(state.playerPos.x, enemy.position.y + 1.7, state.playerPos.z);
     enemy.lookAt(lookTarget);
     
+    const canSee = checkLineOfSightEnemy(enemy, state.playerPos, dist);
+    enemy.userData.canSeePlayer = canSee;
+    
+    if (canSee) {
+      enemy.userData.lastSeenPlayerTime = now;
+      enemy.userData.lastSeenPlayerPos.copy(state.playerPos);
+    }
+    
+    const timeSinceSeen = now - enemy.userData.lastSeenPlayerTime;
+    const hasMemory = timeSinceSeen < p.memoryDuration;
+    const hpRatio = enemy.userData.hp / enemy.userData.maxHp;
+    
+    if (dist < 3.5 && canSee) {
+      enemy.userData.state = 'combat';
+      const backX = -toPlayer.x * 4;
+      const backZ = -toPlayer.z * 4;
+      tryMoveXZ(enemy.position, backX * dt, backZ * dt, enemy.userData.radius, 1.9);
+      if (now - enemy.userData.lastShot > 400) {
+        enemy.userData.lastShot = now;
+        const muzzleOffset = new THREE.Vector3(0.28, 1.22, -0.5).applyQuaternion(enemy.quaternion);
+        const enemyMuzzle = enemy.position.clone().add(muzzleOffset);
+        const playerTarget = state.playerPos.clone().add(new THREE.Vector3(0, -0.3, 0));
+        const dirToPlayer = playerTarget.clone().sub(enemyMuzzle).normalize();
+        const inaccuracy = (1 - p.accuracy) * 0.15;
+        dirToPlayer.x += (Math.random() - 0.5) * inaccuracy;
+        dirToPlayer.y += (Math.random() - 0.5) * inaccuracy;
+        dirToPlayer.z += (Math.random() - 0.5) * inaccuracy;
+        dirToPlayer.normalize();
+        spawnBullet(enemyMuzzle, dirToPlayer, 80, true);
+        if (settings.muzzleFlash) {
+          const flash = new THREE.PointLight(0xff8844, 4, 5);
+          flash.position.copy(enemyMuzzle);
+          scene.add(flash);
+          impacts.push({ mesh: flash, life: 0.05, isLight: true });
+        }
+        if (Math.random() < 0.75) {
+          damagePlayer(14 * diffMult, 'TORSO', enemy.position);
+        }
+      }
+      enemy.userData.walkPhase += dt * 10;
+      const swing = Math.sin(enemy.userData.walkPhase) * 0.4;
+      if (enemy.userData.legL) enemy.userData.legL.rotation.x = swing;
+      if (enemy.userData.legR) enemy.userData.legR.rotation.x = -swing;
+      continue;
+    }
+    
+    if (hpRatio < 0.3 * p.courage && canSee && dist < 20) {
+      enemy.userData.state = 'retreat';
+    }
+    else if (canSee && dist < 30) {
+      enemy.userData.state = 'combat';
+    }
+    else if (hasMemory && timeSinceSeen > 500) {
+      enemy.userData.state = 'investigate';
+    }
+    else {
+      enemy.userData.state = 'patrol';
+    }
+    
+    enemy.userData.stateTimer += dt;
+    
     let vx = 0, vz = 0;
-    if (dist > 8) { vx = toPlayer.x * 3; vz = toPlayer.z * 3; }
-    else if (dist < 5) { vx = -toPlayer.x * 2; vz = -toPlayer.z * 2; }
+    let moveSpeed = 3;
+    
+    if (enemy.userData.state === 'combat') {
+      const optimalRange = p.preferredRange;
+      if (dist > optimalRange + 2) {
+        vx = toPlayer.x * moveSpeed;
+        vz = toPlayer.z * moveSpeed;
+      } else if (dist < optimalRange - 2) {
+        vx = -toPlayer.x * moveSpeed * 0.8;
+        vz = -toPlayer.z * moveSpeed * 0.8;
+      } else {
+        p.strafeTimer -= dt;
+        if (p.strafeTimer <= 0) {
+          p.strafeDir *= -1;
+          p.strafeTimer = 1.5 + Math.random() * 2;
+        }
+        const strafeX = -toPlayer.z * p.strafeDir;
+        const strafeZ = toPlayer.x * p.strafeDir;
+        vx = strafeX * moveSpeed * 0.9;
+        vz = strafeZ * moveSpeed * 0.9;
+      }
+      
+      if (now - enemy.userData.lastShot > p.reactionTime && dist < 28) {
+        enemy.userData.lastShot = now;
+        const muzzleOffset = new THREE.Vector3(0.28, 1.22, -0.5).applyQuaternion(enemy.quaternion);
+        const enemyMuzzle = enemy.position.clone().add(muzzleOffset);
+        const playerTarget = state.playerPos.clone().add(new THREE.Vector3(0, -0.3, 0));
+        const dirToPlayer = playerTarget.clone().sub(enemyMuzzle).normalize();
+        
+        const distFactor = Math.min(1, dist / 25);
+        const inaccuracy = (1 - p.accuracy) * 0.12 * (0.5 + distFactor);
+        dirToPlayer.x += (Math.random() - 0.5) * inaccuracy;
+        dirToPlayer.y += (Math.random() - 0.5) * inaccuracy;
+        dirToPlayer.z += (Math.random() - 0.5) * inaccuracy;
+        dirToPlayer.normalize();
+        
+        spawnBullet(enemyMuzzle, dirToPlayer, 80, true);
+        if (settings.muzzleFlash) {
+          const flash = new THREE.PointLight(0xff8844, 4, 5);
+          flash.position.copy(enemyMuzzle);
+          scene.add(flash);
+          impacts.push({ mesh: flash, life: 0.05, isLight: true });
+        }
+        
+        const hitChance = p.accuracy * (1 - distFactor * 0.6) * diffMult;
+        if (Math.random() < hitChance) {
+          const hitRoll = Math.random();
+          let zone, dmg;
+          if (hitRoll < 0.12) { zone = 'HEAD'; dmg = 22 * diffMult; }
+          else if (hitRoll < 0.70) { zone = 'TORSO'; dmg = 11 * diffMult; }
+          else if (hitRoll < 0.85) { zone = 'ARM'; dmg = 6 * diffMult; }
+          else { zone = 'LEG'; dmg = 7 * diffMult; }
+          damagePlayer(dmg, zone, enemy.position);
+        }
+      }
+    }
+    else if (enemy.userData.state === 'retreat') {
+      if (!enemy.userData.coverPos || enemy.userData.stateTimer > 2) {
+        const cover = findNearestCover(enemy, state.playerPos);
+        if (cover) {
+          enemy.userData.coverPos = cover;
+          enemy.userData.stateTimer = 0;
+        }
+      }
+      if (enemy.userData.coverPos) {
+        const toCover = new THREE.Vector3().subVectors(enemy.userData.coverPos, enemy.position);
+        toCover.y = 0;
+        const coverDist = toCover.length();
+        if (coverDist > 1) {
+          toCover.normalize();
+          vx = toCover.x * moveSpeed * 1.2;
+          vz = toCover.z * moveSpeed * 1.2;
+        }
+      } else {
+        vx = -toPlayer.x * moveSpeed;
+        vz = -toPlayer.z * moveSpeed;
+      }
+      
+      if (now - enemy.userData.lastShot > p.reactionTime * 2 && dist < 25 && canSee) {
+        enemy.userData.lastShot = now;
+        const muzzleOffset = new THREE.Vector3(0.28, 1.22, -0.5).applyQuaternion(enemy.quaternion);
+        const enemyMuzzle = enemy.position.clone().add(muzzleOffset);
+        const playerTarget = state.playerPos.clone().add(new THREE.Vector3(0, -0.3, 0));
+        const dirToPlayer = playerTarget.clone().sub(enemyMuzzle).normalize();
+        const inaccuracy = (1 - p.accuracy) * 0.2;
+        dirToPlayer.x += (Math.random() - 0.5) * inaccuracy;
+        dirToPlayer.y += (Math.random() - 0.5) * inaccuracy;
+        dirToPlayer.z += (Math.random() - 0.5) * inaccuracy;
+        dirToPlayer.normalize();
+        spawnBullet(enemyMuzzle, dirToPlayer, 80, true);
+        if (Math.random() < 0.25 * p.accuracy) {
+          damagePlayer(7 * diffMult, 'TORSO', enemy.position);
+        }
+      }
+    }
+    else if (enemy.userData.state === 'investigate') {
+      const toLast = new THREE.Vector3().subVectors(enemy.userData.lastSeenPlayerPos, enemy.position);
+      toLast.y = 0;
+      const lastDist = toLast.length();
+      if (lastDist > 2) {
+        toLast.normalize();
+        vx = toLast.x * moveSpeed * 0.9;
+        vz = toLast.z * moveSpeed * 0.9;
+      } else {
+        enemy.userData.state = 'patrol';
+      }
+    }
+    else {
+      if (!enemy.userData.patrolDir || Math.random() < 0.01) {
+        const a = Math.random() * Math.PI * 2;
+        enemy.userData.patrolDir = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
+      }
+      if (enemy.userData.patrolDir) {
+        vx = enemy.userData.patrolDir.x * moveSpeed * 0.5;
+        vz = enemy.userData.patrolDir.z * moveSpeed * 0.5;
+        const testX = enemy.position.x + vx * dt * 3;
+        const testZ = enemy.position.z + vz * dt * 3;
+        if (insideWall(testX, testZ, enemy.userData.radius)) {
+          enemy.userData.patrolDir = null;
+        }
+      }
+    }
     
     if (vx !== 0 || vz !== 0) {
       tryMoveXZ(enemy.position, vx * dt, vz * dt, enemy.userData.radius, 1.9);
@@ -2678,52 +2947,7 @@ function updateEnemies(dt) {
       if (enemy.userData.armL) enemy.userData.armL.rotation.x *= 0.85;
       if (enemy.userData.armR) enemy.userData.armR.rotation.x *= 0.85;
     }
-    
-    const canSee = checkLineOfSight(enemy, dist);
-    
-    if (dist < 25 && canSee && now - enemy.userData.lastShot > 1500) {
-      enemy.userData.lastShot = now;
-      const muzzleOffset = new THREE.Vector3(0.28, 1.22, -0.5).applyQuaternion(enemy.quaternion);
-      const enemyMuzzle = enemy.position.clone().add(muzzleOffset);
-      const playerTarget = state.playerPos.clone().add(new THREE.Vector3(0, -0.3, 0));
-      const dirToPlayer = playerTarget.clone().sub(enemyMuzzle).normalize();
-      dirToPlayer.x += (Math.random() - 0.5) * 0.05;
-      dirToPlayer.y += (Math.random() - 0.5) * 0.05;
-      dirToPlayer.z += (Math.random() - 0.5) * 0.05;
-      dirToPlayer.normalize();
-      spawnBullet(enemyMuzzle, dirToPlayer, 80, true);
-      
-      // Muzzle flash для врага
-      if (settings.muzzleFlash) {
-        const flash = new THREE.PointLight(0xff8844, 4, 5);
-        flash.position.copy(enemyMuzzle);
-        scene.add(flash);
-        impacts.push({ mesh: flash, life: 0.05, isLight: true });
-      }
-      
-      const hitRoll = Math.random();
-      let zone, dmg;
-      if (hitRoll < 0.15) { zone = 'HEAD'; dmg = 25 * diffMult; }
-      else if (hitRoll < 0.70) { zone = 'TORSO'; dmg = 12 * diffMult; }
-      else if (hitRoll < 0.85) { zone = 'ARM'; dmg = 7 * diffMult; }
-      else { zone = 'LEG'; dmg = 8 * diffMult; }
-      
-      if (Math.random() < 0.45) {
-        damagePlayer(dmg, zone, enemy.position);
-      }
-    }
   }
-}
-
-function checkLineOfSight(enemy, dist) {
-  const origin = enemy.position.clone().add(new THREE.Vector3(0, 1.5, 0));
-  const target = state.playerPos.clone().add(new THREE.Vector3(0, -0.3, 0));
-  const dir = target.clone().sub(origin).normalize();
-  raycaster.set(origin, dir);
-  raycaster.far = dist;
-  const hits = raycaster.intersectObjects(mapGroup.children, false);
-  if (hits.length > 0 && hits[0].distance < dist - 0.5) return false;
-  return true;
 }
 
 function damagePlayer(dmg, zone, enemyPos) {
@@ -2825,7 +3049,6 @@ function animate() {
     }
   }
   
-  // Обновление эффектов
   for (let i = impacts.length - 1; i >= 0; i--) {
     const imp = impacts[i];
     imp.life -= dt;
@@ -2858,7 +3081,6 @@ function animate() {
     }
   }
   
-  // FPS
   if (settings.showFps) {
     fpsCounter++;
     fpsTime += dt;
@@ -2887,6 +3109,28 @@ document.getElementById('restartBtn').addEventListener('click', () => {
 document.addEventListener('keydown', e => {
   if (e.code === settings.keybinds.reload && state.running) reload();
   if (e.code === 'Space') e.preventDefault();
+
+  // ==== ПЕРЕКЛЮЧЕНИЕ МЕНЮ ПО КЛАВИШЕ Q ====
+  if (e.code === 'KeyQ' && !state.running) {
+    e.preventDefault();
+
+    const menuEl = document.getElementById('menu');
+    const settingsEl = document.getElementById('settingsMenu');
+    const menuVisible = menuEl.style.display !== 'none';
+    const settingsVisible = settingsEl.style.display !== 'none';
+
+    // Главное меню -> Настройки
+    if (menuVisible && !settingsVisible) {
+      menuEl.style.display = 'none';
+      settingsEl.style.display = 'flex';
+      syncSettingsUI();
+    }
+    // Настройки -> Главное меню
+    else if (settingsVisible) {
+      settingsEl.style.display = 'none';
+      menuEl.style.display = 'flex';
+    }
+  }
 });
 
 addEventListener('resize', () => {
